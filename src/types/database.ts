@@ -60,6 +60,15 @@ export interface Serving {
   metric_serving_unit?: string
 }
 
+export interface WeightLog {
+  id: string
+  user_id: string
+  date: string
+  weight_kg: number
+  notes?: string
+  created_at: string
+}
+
 export const MEAL_TYPE_LABELS = {
   breakfast: 'Desayuno',
   lunch: 'Comida',

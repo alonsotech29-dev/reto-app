@@ -7,7 +7,7 @@ export default async function FoodPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   const [{ data: profile }, { data: foodEntries }] = await Promise.all([
-    supabase.from('profiles').select('daily_calories').eq('id', user!.id).single(),
+    supabase.from('profiles').select('daily_calories, challenge_start_date').eq('id', user!.id).single(),
     supabase.from('food_entries').select('*').eq('user_id', user!.id).eq('date', getTodayString()).order('created_at'),
   ])
 
@@ -16,6 +16,7 @@ export default async function FoodPage() {
       userId={user!.id}
       dailyCalories={profile!.daily_calories}
       foodEntries={foodEntries || []}
+      challengeStartDate={profile!.challenge_start_date}
     />
   )
 }

@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   if (!query) return NextResponse.json({ foods: [] })
 
   try {
-    const data = await fatSecretRequest('foods.search', {
+    const data = await fatSecretRequest('foods.search.v3', {
       search_expression: query,
       page_number: page,
       max_results: maxResults,

@@ -1,29 +1,36 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { getTodayString } from '@/lib/utils'
+import { getTodayString, formatDate } from '@/lib/utils'
+import { getChallengeDay } from '@/lib/calories'
 import { FoodEntry, FoodSearchResult, Serving, MEAL_TYPE_LABELS, MEAL_TYPE_ICONS } from '@/types/database'
 import CalorieChart from '@/components/CalorieChart'
 import {
   Camera, Search, Plus, X, Loader2, Trash2,
-  Edit2, Check, ChevronDown, Zap
+  Edit2, Check, ChevronDown, Zap, ChevronLeft, ChevronRight, AlertCircle
 } from 'lucide-react'
 
 interface Props {
   userId: string
   dailyCalories: number
   foodEntries: FoodEntry[]
+  challengeStartDate: string
 }
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
 
-export default function FoodClient({ userId, dailyCalories, foodEntries: initial }: Props) {
+export default function FoodClient({ userId, dailyCalories, foodEntries: initial, challengeStartDate }: Props) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Date selection
+  const [selectedDate, setSelectedDate] = useState(getTodayString())
   const [entries, setEntries] = useState<FoodEntry[]>(initial)
+  const [loadingDate, setLoadingDate] = useState(false)
+
   const [showForm, setShowForm] = useState(false)
   const [mealType, setMealType] = useState<typeof MEAL_TYPES[number]>('lunch')
 
@@ -50,6 +57,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
   const [manualFoodName, setManualFoodName] = useState('')
 
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const totalCalories = entries.reduce((s, e) => s + e.calories, 0)
@@ -57,10 +65,53 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
   const totalCarbs = entries.reduce((s, e) => s + (e.carbs_g || 0), 0)
   const totalFat = entries.reduce((s, e) => s + (e.fat_g || 0), 0)
 
+  // Date navigation
+  const today = getTodayString()
+  const isToday = selectedDate === today
+  const challengeDay = getChallengeDay(challengeStartDate)
+
+  const getDateLabel = (dateStr: string) => {
+    if (dateStr === today) return 'Hoy'
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    if (dateStr === formatDate(yesterday)) return 'Ayer'
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+
+  const getDayOfChallenge = (dateStr: string) => {
+    const start = new Date(challengeStartDate)
+    const date = new Date(dateStr + 'T00:00:00')
+    start.setHours(0, 0, 0, 0)
+    date.setHours(0, 0, 0, 0)
+    const diff = Math.floor((date.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    if (diff < 1 || diff > 30) return null
+    return diff
+  }
+
+  const navigateDate = async (direction: 'prev' | 'next') => {
+    const date = new Date(selectedDate + 'T00:00:00')
+    date.setDate(date.getDate() + (direction === 'next' ? 1 : -1))
+    const newDateStr = formatDate(date)
+    if (newDateStr > today) return
+
+    setSelectedDate(newDateStr)
+    setLoadingDate(true)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('food_entries')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', newDateStr)
+      .order('created_at')
+    setEntries(data || [])
+    setLoadingDate(false)
+  }
+
   // Debounced search
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
   const handleSearchInput = useCallback((value: string) => {
     setSearchQuery(value)
+    setSelectedFood(null)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (value.length < 2) { setSearchResults([]); return }
     debounceRef.current = setTimeout(async () => {
@@ -109,7 +160,6 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
         const data = await res.json()
         const foods = data.identified_foods || []
         setIdentifiedFoods(foods)
-        // Auto-search first identified food
         if (foods.length > 0) {
           handleSearchInput(foods[0].name)
         }
@@ -130,28 +180,35 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
   const saveEntry = async () => {
     if (!canSave) return
     setSaving(true)
+    setSaveError(null)
     const supabase = createClient()
 
     const isManual = !selectedFood
-    const { data, error } = await supabase.from('food_entries').insert({
+    const insertData = {
       user_id: userId,
-      date: getTodayString(),
+      date: selectedDate,
       meal_type: mealType,
       food_name: isManual ? manualFoodName : selectedFood!.food_name,
       calories: isManual ? parseInt(manualCalories) : finalCalories,
       protein_g: isManual ? 0 : finalProtein,
       carbs_g: isManual ? 0 : finalCarbs,
       fat_g: isManual ? 0 : finalFat,
-      analysis_source: isManual ? 'manual' : 'fatsecret',
-      fatsecret_food_id: selectedFood?.food_id || null,
-      serving_description: selectedServing?.serving_description || null,
-      serving_quantity: quantity,
-    }).select().single()
+      analysis_source: 'manual' as const,
+    }
 
-    if (!error && data) {
+    const { data, error } = await supabase
+      .from('food_entries')
+      .insert(insertData)
+      .select()
+      .single()
+
+    if (error) {
+      setSaveError('Error al guardar. Inténtalo de nuevo.')
+      console.error('Save error:', error)
+    } else if (data) {
       setEntries(prev => [...prev, data])
       resetForm()
-      router.refresh()
+      if (selectedDate === today) router.refresh()
     }
     setSaving(false)
   }
@@ -162,7 +219,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
     await supabase.from('food_entries').delete().eq('id', id)
     setEntries(prev => prev.filter(e => e.id !== id))
     setDeletingId(null)
-    router.refresh()
+    if (selectedDate === today) router.refresh()
   }
 
   const resetForm = () => {
@@ -180,6 +237,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
     setManualCalories('')
     setManualFoodName('')
     setLoadingServings(false)
+    setSaveError(null)
   }
 
   const groupedEntries = MEAL_TYPES.reduce((acc, mt) => {
@@ -187,19 +245,45 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
     return acc
   }, {} as Record<string, FoodEntry[]>)
 
+  const selectedDayOfChallenge = getDayOfChallenge(selectedDate)
+
   return (
     <div className="max-w-6xl mx-auto px-4 pt-6 lg:pt-8">
       {/* Header */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold font-heading text-foreground">Comidas</h1>
-          <p className="text-muted text-sm">Registro de hoy</p>
+          {selectedDayOfChallenge && (
+            <p className="text-muted text-sm">Día {selectedDayOfChallenge} del reto</p>
+          )}
         </div>
         <button
           onClick={() => setShowForm(true)}
           className="flex items-center gap-2 px-4 py-2.5 bg-lime hover:bg-lime-dark text-background text-sm font-semibold rounded-xl transition-all"
         >
-          <Plus className="w-4 h-4" /> Anadir
+          <Plus className="w-4 h-4" /> Añadir
+        </button>
+      </motion.div>
+
+      {/* Date navigator */}
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+        className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-3 mb-5">
+        <button
+          onClick={() => navigateDate('prev')}
+          className="p-1.5 rounded-lg hover:bg-white/[0.06] text-muted hover:text-foreground transition-colors"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <div className="text-center">
+          <p className="text-sm font-semibold text-foreground">{getDateLabel(selectedDate)}</p>
+          <p className="text-xs text-muted-dark">{new Date(selectedDate + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        </div>
+        <button
+          onClick={() => navigateDate('next')}
+          disabled={isToday}
+          className="p-1.5 rounded-lg hover:bg-white/[0.06] text-muted hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronRight className="w-5 h-5" />
         </button>
       </motion.div>
 
@@ -207,37 +291,45 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
         {/* Left: calorie summary */}
         <div className="lg:col-span-1">
           <div className="card p-5 lg:sticky lg:top-8">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <p className="text-sm text-muted">Total consumido</p>
-                <p className="text-3xl font-bold font-heading text-foreground">{totalCalories} <span className="text-lg text-muted">kcal</span></p>
+            {loadingDate ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 text-lime animate-spin" />
               </div>
-            </div>
-            <div className="flex justify-center">
-              <CalorieChart consumed={totalCalories} target={dailyCalories} />
-            </div>
-            <p className="text-center text-sm text-muted mt-2">Objetivo: {dailyCalories} kcal</p>
-
-            {entries.length > 0 && (
-              <div className="grid grid-cols-3 gap-2 mt-4">
-                {[
-                  { label: 'Proteina', value: Math.round(totalProtein), color: 'text-accent-cyan' },
-                  { label: 'Carbos', value: Math.round(totalCarbs), color: 'text-accent-orange' },
-                  { label: 'Grasas', value: Math.round(totalFat), color: 'text-warning' },
-                ].map(macro => (
-                  <div key={macro.label} className="bg-white/[0.03] rounded-xl p-2.5 text-center">
-                    <p className={`text-sm font-bold font-heading ${macro.color}`}>{macro.value}g</p>
-                    <p className="text-xs text-muted-dark">{macro.label}</p>
+            ) : (
+              <>
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <p className="text-sm text-muted">Total consumido</p>
+                    <p className="text-3xl font-bold font-heading text-foreground">{totalCalories} <span className="text-lg text-muted">kcal</span></p>
                   </div>
-                ))}
-              </div>
+                </div>
+                <div className="flex justify-center">
+                  <CalorieChart consumed={totalCalories} target={dailyCalories} />
+                </div>
+                <p className="text-center text-sm text-muted mt-2">Objetivo: {dailyCalories} kcal</p>
+
+                {entries.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 mt-4">
+                    {[
+                      { label: 'Proteína', value: Math.round(totalProtein), color: 'text-accent-cyan' },
+                      { label: 'Carbos', value: Math.round(totalCarbs), color: 'text-accent-orange' },
+                      { label: 'Grasas', value: Math.round(totalFat), color: 'text-warning' },
+                    ].map(macro => (
+                      <div key={macro.label} className="bg-white/[0.03] rounded-xl p-2.5 text-center">
+                        <p className={`text-sm font-bold font-heading ${macro.color}`}>{macro.value}g</p>
+                        <p className="text-xs text-muted-dark">{macro.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
 
         {/* Right: meals list */}
         <div className="lg:col-span-2 space-y-4">
-          {MEAL_TYPES.map(mt => {
+          {!loadingDate && MEAL_TYPES.map(mt => {
             const mealEntries = groupedEntries[mt]
             if (mealEntries.length === 0) return null
             const mealCals = mealEntries.reduce((s, e) => s + e.calories, 0)
@@ -255,8 +347,6 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">{entry.food_name}</p>
                         <p className="text-xs text-muted-dark">
-                          {entry.analysis_source === 'fatsecret' && <span className="text-lime">FatSecret · </span>}
-                          {entry.analysis_source === 'claude_ai' && <span className="text-purple-400">IA · </span>}
                           {entry.protein_g > 0 && `P: ${Math.round(entry.protein_g)}g · `}
                           {entry.carbs_g > 0 && `C: ${Math.round(entry.carbs_g)}g · `}
                           {entry.fat_g > 0 && `G: ${Math.round(entry.fat_g)}g`}
@@ -280,11 +370,11 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
             )
           })}
 
-          {entries.length === 0 && (
+          {!loadingDate && entries.length === 0 && (
             <div className="text-center py-16 text-muted">
               <Zap className="w-10 h-10 mx-auto mb-3 text-muted-dark" />
-              <p className="text-lg mb-1 font-heading">Sin registros hoy</p>
-              <p className="text-sm text-muted-dark">Anade tu primera comida pulsando el boton de arriba</p>
+              <p className="text-lg mb-1 font-heading">Sin registros {isToday ? 'hoy' : 'este día'}</p>
+              <p className="text-sm text-muted-dark">Añade tu primera comida pulsando el botón de arriba</p>
             </div>
           )}
         </div>
@@ -298,22 +388,29 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end lg:items-center justify-center"
+            onClick={(e) => { if (e.target === e.currentTarget) resetForm() }}
           >
             <motion.div
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="bg-card rounded-t-2xl lg:rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-border-strong shadow-2xl"
+              className="bg-card rounded-t-2xl lg:rounded-2xl w-full max-w-lg flex flex-col border border-border-strong shadow-2xl"
+              style={{ maxHeight: '90dvh' }}
             >
-              <div className="flex justify-between items-center p-5 border-b border-border">
-                <h2 className="text-lg font-semibold font-heading text-foreground">Registrar comida</h2>
+              {/* Sticky header */}
+              <div className="flex justify-between items-center p-5 border-b border-border shrink-0">
+                <div>
+                  <h2 className="text-lg font-semibold font-heading text-foreground">Registrar comida</h2>
+                  <p className="text-xs text-muted">{getDateLabel(selectedDate)}</p>
+                </div>
                 <button onClick={resetForm} className="text-muted hover:text-foreground transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="p-5 space-y-4">
+              {/* Scrollable content */}
+              <div className="flex-1 overflow-y-auto overscroll-contain p-5 space-y-4">
                 {/* Meal type selector */}
                 <div>
                   <label className="block text-sm font-medium text-muted mb-2">Tipo de comida</label>
@@ -341,7 +438,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                     <button onClick={() => fileRef.current?.click()}
                       className="w-full h-28 border-2 border-dashed border-border-strong hover:border-lime/30 rounded-2xl flex flex-col items-center justify-center gap-1.5 text-muted hover:text-lime transition-all">
                       <Camera className="w-6 h-6" />
-                      <span className="text-xs font-medium">La IA identificara los alimentos</span>
+                      <span className="text-xs font-medium">La IA identificará los alimentos</span>
                     </button>
                   ) : (
                     <div className="relative">
@@ -359,7 +456,6 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                     </div>
                   )}
 
-                  {/* Identified foods chips */}
                   {identifiedFoods.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2">
                       {identifiedFoods.map((f, i) => (
@@ -376,7 +472,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
 
                 {/* Food search */}
                 <div>
-                  <label className="block text-sm font-medium text-muted mb-2">Buscar alimento</label>
+                  <label className="block text-sm font-medium text-muted mb-2">Buscar alimento (FatSecret)</label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-dark" />
                     <input
@@ -389,7 +485,6 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                     {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-lime animate-spin" />}
                   </div>
 
-                  {/* Search results dropdown */}
                   {searchResults.length > 0 && !selectedFood && (
                     <div className="mt-1 bg-elevated border border-border-strong rounded-xl overflow-hidden max-h-48 overflow-y-auto">
                       {searchResults.map((result) => (
@@ -397,7 +492,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                           className="w-full px-4 py-3 hover:bg-white/[0.04] border-b border-border last:border-0 text-left transition-colors">
                           <p className="text-sm font-medium text-foreground">{result.food_name}</p>
                           {result.brand_name && <p className="text-xs text-muted-dark">{result.brand_name}</p>}
-                          <p className="text-xs text-muted mt-0.5">{result.food_description}</p>
+                          <p className="text-xs text-muted mt-0.5 line-clamp-1">{result.food_description}</p>
                         </button>
                       ))}
                     </div>
@@ -410,7 +505,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                     className="bg-lime/5 border border-lime/20 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-semibold text-foreground">{selectedFood.food_name}</p>
-                      <button onClick={() => { setSelectedFood(null); setServings([]); setSelectedServing(null); }}
+                      <button onClick={() => { setSelectedFood(null); setServings([]); setSelectedServing(null); setSearchQuery(''); }}
                         className="text-muted-dark hover:text-foreground"><X className="w-4 h-4" /></button>
                     </div>
 
@@ -421,10 +516,9 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                       </div>
                     ) : (
                       <>
-                        {/* Serving options */}
                         <div>
-                          <label className="block text-xs font-medium text-muted mb-1.5">Porcion</label>
-                          <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                          <label className="block text-xs font-medium text-muted mb-1.5">Porción</label>
+                          <div className="space-y-1.5 max-h-40 overflow-y-auto">
                             {servings.map(s => (
                               <label key={s.serving_id} className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
                                 selectedServing?.serving_id === s.serving_id ? 'bg-lime/10 border border-lime/30' : 'hover:bg-white/[0.03] border border-transparent'
@@ -443,7 +537,6 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                           </div>
                         </div>
 
-                        {/* Quantity */}
                         <div>
                           <label className="block text-xs font-medium text-muted mb-1.5">Cantidad</label>
                           <div className="flex items-center gap-2">
@@ -462,7 +555,6 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                           </div>
                         </div>
 
-                        {/* Nutrition preview */}
                         {selectedServing && (
                           <div>
                             <div className="flex items-center gap-2 mb-2">
@@ -485,7 +577,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                             </div>
                             <div className="grid grid-cols-3 gap-2">
                               {[
-                                { label: 'Proteina', value: finalProtein, color: 'text-accent-cyan' },
+                                { label: 'Proteína', value: finalProtein, color: 'text-accent-cyan' },
                                 { label: 'Carbos', value: finalCarbs, color: 'text-accent-orange' },
                                 { label: 'Grasas', value: finalFat, color: 'text-warning' },
                               ].map(m => (
@@ -517,15 +609,26 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                   </div>
                 )}
 
+                {/* Error message */}
+                {saveError && (
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-danger/10 border border-danger/20 text-danger text-sm">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    {saveError}
+                  </div>
+                )}
+
                 {/* Save button */}
                 <button
                   onClick={saveEntry}
                   disabled={!canSave || saving}
-                  className="w-full py-3 bg-lime hover:bg-lime-dark disabled:opacity-40 disabled:cursor-not-allowed text-background font-semibold rounded-xl flex items-center justify-center gap-2 transition-all"
+                  className="w-full py-3.5 bg-lime hover:bg-lime-dark disabled:opacity-40 disabled:cursor-not-allowed text-background font-semibold rounded-xl flex items-center justify-center gap-2 transition-all"
                 >
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                   {saving ? 'Guardando...' : 'Guardar comida'}
                 </button>
+
+                {/* Bottom padding for mobile safe area */}
+                <div className="h-2" />
               </div>
             </motion.div>
           </motion.div>
