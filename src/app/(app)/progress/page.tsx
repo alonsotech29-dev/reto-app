@@ -13,7 +13,7 @@ export default async function ProgressPage() {
   endDate.setDate(endDate.getDate() + 29)
   const endDateStr = endDate.toISOString().split('T')[0]
 
-  const [{ data: checklists }, { data: foodEntries }] = await Promise.all([
+  const [{ data: checklists }, { data: foodEntries }, { data: weightLogs }] = await Promise.all([
     supabase.from('daily_checklist')
       .select('*')
       .eq('user_id', user!.id)
@@ -25,6 +25,12 @@ export default async function ProgressPage() {
       .eq('user_id', user!.id)
       .gte('date', startDate)
       .lte('date', endDateStr),
+    supabase.from('weight_logs')
+      .select('date, weight_kg')
+      .eq('user_id', user!.id)
+      .gte('date', startDate)
+      .lte('date', endDateStr)
+      .order('date'),
   ])
 
   return (
@@ -32,6 +38,7 @@ export default async function ProgressPage() {
       profile={profile!}
       checklists={checklists || []}
       foodEntries={foodEntries || []}
+      weightLogs={weightLogs || []}
       challengeDay={getChallengeDay(startDate)}
     />
   )

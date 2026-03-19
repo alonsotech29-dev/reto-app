@@ -3,16 +3,17 @@
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
   ResponsiveContainer
 } from 'recharts'
 import { Profile, DailyChecklist } from '@/types/database'
-import { Trophy, Flame, Footprints, Dumbbell, TrendingUp, Calendar } from 'lucide-react'
+import { Trophy, Flame, Footprints, Dumbbell, TrendingUp, Calendar, Scale } from 'lucide-react'
 
 interface Props {
   profile: Profile
   checklists: DailyChecklist[]
   foodEntries: Array<{ date: string; calories: number }>
+  weightLogs: Array<{ date: string; weight_kg: number }>
   challengeDay: number
 }
 
@@ -24,8 +25,41 @@ const fadeUp = {
   })
 }
 
-export default function ProgressClient({ profile, checklists, foodEntries, challengeDay }: Props) {
+export default function ProgressClient({ profile, checklists, foodEntries, weightLogs, challengeDay }: Props) {
   const startDate = new Date(profile.challenge_start_date)
+
+  const weightChartData = useMemo(() => {
+    if (weightLogs.length === 0) return []
+    const weightByDate = weightLogs.reduce((acc, w) => {
+      acc[w.date] = w.weight_kg
+      return acc
+    }, {} as Record<string, number>)
+
+    return Array.from({ length: 30 }, (_, i) => {
+      const date = new Date(startDate)
+      date.setDate(date.getDate() + i)
+      const dateStr = date.toISOString().split('T')[0]
+      const dayNum = i + 1
+      const weight = weightByDate[dateStr]
+      return {
+        day: dayNum,
+        label: `D${dayNum}`,
+        weight: dayNum <= challengeDay ? weight || null : null,
+        dateStr,
+      }
+    }).filter(d => d.weight !== null)
+  }, [weightLogs, challengeDay, startDate])
+
+  const weightStats = useMemo(() => {
+    if (weightChartData.length === 0) return null
+    const weights = weightChartData.map(d => d.weight as number)
+    const first = weights[0]
+    const last = weights[weights.length - 1]
+    const min = Math.min(...weights)
+    const max = Math.max(...weights)
+    const change = last - first
+    return { first, last, min, max, change }
+  }, [weightChartData])
 
   const chartData = useMemo(() => {
     const calsByDate = foodEntries.reduce((acc, e) => {
@@ -198,8 +232,85 @@ export default function ProgressClient({ profile, checklists, foodEntries, chall
             <p className="text-xs text-muted-dark mt-2 text-center">— linea = objetivo ({profile.daily_calories} kcal)</p>
           </motion.div>
 
-          {/* Calendar grid */}
+          {/* Weight evolution chart */}
           <motion.div custom={3} variants={fadeUp} initial="hidden" animate="visible" className="card p-5">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="font-semibold font-heading text-foreground flex items-center gap-2">
+                <Scale className="w-4 h-4 text-accent-cyan" /> Evolución del peso
+              </h2>
+              {weightStats && (
+                <span className={`text-xs font-medium px-2 py-1 rounded-lg ${
+                  weightStats.change <= 0 ? 'text-success bg-success/10' : 'text-danger bg-danger/10'
+                }`}>
+                  {weightStats.change > 0 ? '+' : ''}{weightStats.change.toFixed(1)} kg
+                </span>
+              )}
+            </div>
+            {weightChartData.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={weightChartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                    <XAxis dataKey="label" tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} />
+                    <YAxis
+                      tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false}
+                      domain={[
+                        (dataMin: number) => Math.floor(dataMin - 1),
+                        (dataMax: number) => Math.ceil(dataMax + 1)
+                      ]}
+                    />
+                    <Tooltip content={({ active, payload }) => {
+                      if (active && payload && payload.length > 0) {
+                        const d = payload[0].payload
+                        return (
+                          <div className="bg-card border border-border-strong rounded-xl p-3 text-sm">
+                            <p className="font-semibold font-heading text-foreground mb-1">Día {d.day}</p>
+                            <p className="text-accent-cyan">{d.weight} kg</p>
+                          </div>
+                        )
+                      }
+                      return null
+                    }} />
+                    <ReferenceLine y={profile.weight_kg} stroke="#06b6d4" strokeDasharray="4 4" strokeWidth={1} strokeOpacity={0.5} />
+                    <Line type="monotone" dataKey="weight" stroke="#06b6d4" strokeWidth={2.5}
+                      dot={{ fill: '#06b6d4', strokeWidth: 0, r: 3 }}
+                      activeDot={{ fill: '#06b6d4', strokeWidth: 2, stroke: '#fff', r: 5 }}
+                      connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+                {weightStats && (
+                  <div className="grid grid-cols-4 gap-3 mt-3">
+                    <div className="text-center">
+                      <p className="text-xs text-muted">Inicio</p>
+                      <p className="text-sm font-bold font-heading text-foreground">{weightStats.first} kg</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted">Actual</p>
+                      <p className="text-sm font-bold font-heading text-accent-cyan">{weightStats.last} kg</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted">Mín</p>
+                      <p className="text-sm font-bold font-heading text-success">{weightStats.min} kg</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted">Máx</p>
+                      <p className="text-sm font-bold font-heading text-danger">{weightStats.max} kg</p>
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-muted-dark mt-2 text-center">— línea = peso inicial ({profile.weight_kg} kg)</p>
+              </>
+            ) : (
+              <div className="text-center py-8">
+                <Scale className="w-8 h-8 text-muted-dark mx-auto mb-2" />
+                <p className="text-muted text-sm">Sin registros de peso todavía</p>
+                <p className="text-muted-dark text-xs mt-1">Registra tu peso diario desde el Dashboard</p>
+              </div>
+            )}
+          </motion.div>
+
+          {/* Calendar grid */}
+          <motion.div custom={4} variants={fadeUp} initial="hidden" animate="visible" className="card p-5">
             <h2 className="font-semibold font-heading text-foreground mb-4 flex items-center gap-2">
               <Calendar className="w-4 h-4 text-lime" /> Calendario del reto
             </h2>

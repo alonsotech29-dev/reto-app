@@ -7,10 +7,11 @@ export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const [{ data: profile }, { data: checklist }, { data: foodEntries }] = await Promise.all([
+  const [{ data: profile }, { data: checklist }, { data: foodEntries }, { data: weightLog }] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', user!.id).single(),
     supabase.from('daily_checklist').select('*').eq('user_id', user!.id).eq('date', getTodayString()).single(),
     supabase.from('food_entries').select('*').eq('user_id', user!.id).eq('date', getTodayString()),
+    supabase.from('weight_logs').select('*').eq('user_id', user!.id).eq('date', getTodayString()).single(),
   ])
 
   const challengeDay = getChallengeDay(profile!.challenge_start_date)
@@ -23,6 +24,7 @@ export default async function DashboardPage() {
       foodEntries={foodEntries || []}
       challengeDay={challengeDay}
       totalCaloriesToday={totalCaloriesToday}
+      weightLog={weightLog}
     />
   )
 }
