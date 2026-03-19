@@ -36,6 +36,7 @@ export default async function ProgressPage() {
   return (
     <ProgressClient
       profile={profile!}
+      userId={user!.id}
       checklists={checklists || []}
       foodEntries={foodEntries || []}
       weightLogs={weightLogs || []}

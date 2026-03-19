@@ -1,17 +1,26 @@
 'use client'
 
-import { useMemo } from 'react'
-import Link from 'next/link'
-import { motion } from 'framer-motion'
+import { useMemo, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { createClient } from '@/lib/supabase/client'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
   ResponsiveContainer
 } from 'recharts'
-import { Profile, DailyChecklist } from '@/types/database'
-import { Trophy, Flame, Footprints, Dumbbell, TrendingUp, Calendar, Scale } from 'lucide-react'
+import { Profile, DailyChecklist, FoodEntry, MEAL_TYPE_LABELS, MEAL_TYPE_ICONS } from '@/types/database'
+import { Trophy, Flame, Footprints, Dumbbell, TrendingUp, Calendar, Scale, X, CheckCircle2, Circle, Loader2 } from 'lucide-react'
+
+interface DayDetail {
+  date: string
+  dayNum: number
+  checklist: DailyChecklist | null
+  foodEntries: FoodEntry[]
+  weightLog: { weight_kg: number } | null
+}
 
 interface Props {
   profile: Profile
+  userId: string
   checklists: DailyChecklist[]
   foodEntries: Array<{ date: string; calories: number }>
   weightLogs: Array<{ date: string; weight_kg: number }>
@@ -26,8 +35,22 @@ const fadeUp = {
   })
 }
 
-export default function ProgressClient({ profile, checklists, foodEntries, weightLogs, challengeDay }: Props) {
+export default function ProgressClient({ profile, userId, checklists, foodEntries, weightLogs, challengeDay }: Props) {
   const startDate = new Date(profile.challenge_start_date)
+  const [dayDetail, setDayDetail] = useState<DayDetail | null>(null)
+  const [loadingDay, setLoadingDay] = useState(false)
+
+  const openDay = async (dayNum: number, dateStr: string) => {
+    setLoadingDay(true)
+    const supabase = createClient()
+    const [{ data: cl }, { data: fe }, { data: wl }] = await Promise.all([
+      supabase.from('daily_checklist').select('*').eq('user_id', userId).eq('date', dateStr).single(),
+      supabase.from('food_entries').select('*').eq('user_id', userId).eq('date', dateStr).order('created_at'),
+      supabase.from('weight_logs').select('weight_kg').eq('user_id', userId).eq('date', dateStr).single(),
+    ])
+    setDayDetail({ date: dateStr, dayNum, checklist: cl, foodEntries: fe || [], weightLog: wl })
+    setLoadingDay(false)
+  }
 
   const weightChartData = useMemo(() => {
     if (weightLogs.length === 0) return []
@@ -321,14 +344,14 @@ export default function ProgressClient({ profile, checklists, foodEntries, weigh
                 const isPast = d.day <= challengeDay
                 const className = `aspect-square rounded-xl flex items-center justify-center text-sm lg:text-xs font-medium transition-all
                   ${!isPast ? 'bg-white/[0.03] text-muted-dark cursor-default' :
-                    d.isPerfect ? 'bg-lime/20 text-lime border border-lime/30 hover:ring-2 hover:ring-lime/50 cursor-pointer' :
-                    d.calories !== null && d.calories > 0 ? 'bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/20 hover:ring-2 hover:ring-accent-cyan/50 cursor-pointer' :
-                    'bg-white/[0.05] text-muted-dark hover:bg-white/[0.1] cursor-pointer'
+                    d.isPerfect ? 'bg-lime/20 text-lime border border-lime/30 hover:ring-2 hover:ring-lime/50 cursor-pointer active:scale-95' :
+                    d.calories !== null && d.calories > 0 ? 'bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/20 hover:ring-2 hover:ring-accent-cyan/50 cursor-pointer active:scale-95' :
+                    'bg-white/[0.05] text-muted-dark hover:bg-white/[0.1] cursor-pointer active:scale-95'
                   }`
                 return isPast ? (
-                  <Link key={d.day} href={`/dashboard?date=${d.dateStr}`} title={`Día ${d.day} · ${d.dateStr}`} className={className}>
+                  <button key={d.day} onClick={() => openDay(d.day, d.dateStr)} title={`Día ${d.day} · ${d.dateStr}`} className={className}>
                     {d.day}
-                  </Link>
+                  </button>
                 ) : (
                   <div key={d.day} title={`Día ${d.day}`} className={className}>
                     {d.day}
@@ -344,6 +367,135 @@ export default function ProgressClient({ profile, checklists, foodEntries, weigh
           </motion.div>
         </div>
       </div>
+
+      {/* Loading overlay */}
+      {loadingDay && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-lime animate-spin" />
+        </div>
+      )}
+
+      {/* Day detail modal */}
+      <AnimatePresence>
+        {dayDetail && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end lg:items-center justify-center"
+            onClick={(e) => { if (e.target === e.currentTarget) setDayDetail(null) }}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-card rounded-t-2xl lg:rounded-2xl w-full max-w-lg border border-border-strong shadow-2xl flex flex-col"
+              style={{ maxHeight: '85dvh' }}
+            >
+              {/* Header */}
+              <div className="flex justify-between items-center p-5 border-b border-border shrink-0">
+                <div>
+                  <h2 className="text-lg font-bold font-heading text-foreground">Día {dayDetail.dayNum}</h2>
+                  <p className="text-xs text-muted">
+                    {new Date(dayDetail.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+                </div>
+                <button onClick={() => setDayDetail(null)} className="text-muted hover:text-foreground transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                {/* Checklist */}
+                <div>
+                  <h3 className="text-sm font-semibold text-muted mb-2">Checklist</h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      {dayDetail.checklist?.steps_done
+                        ? <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
+                        : <Circle className="w-5 h-5 text-muted-dark shrink-0" />}
+                      <Footprints className="w-4 h-4 text-accent-cyan shrink-0" />
+                      <span className="text-sm text-foreground">10.000 pasos</span>
+                      {dayDetail.checklist?.steps_count ? (
+                        <span className="ml-auto text-xs text-muted">{dayDetail.checklist.steps_count.toLocaleString()} pasos</span>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {dayDetail.checklist?.gym_done
+                        ? <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
+                        : <Circle className="w-5 h-5 text-muted-dark shrink-0" />}
+                      <Dumbbell className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span className="text-sm text-foreground">Gimnasio</span>
+                    </div>
+                    {dayDetail.weightLog && (
+                      <div className="flex items-center gap-3">
+                        <CheckCircle2 className="w-5 h-5 text-accent-cyan shrink-0" />
+                        <Scale className="w-4 h-4 text-accent-cyan shrink-0" />
+                        <span className="text-sm text-foreground">Peso registrado</span>
+                        <span className="ml-auto text-xs text-accent-cyan font-semibold">{dayDetail.weightLog.weight_kg} kg</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Food entries */}
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-sm font-semibold text-muted">Comidas</h3>
+                    {dayDetail.foodEntries.length > 0 && (
+                      <span className="text-xs font-semibold text-foreground">
+                        {dayDetail.foodEntries.reduce((s, e) => s + e.calories, 0)} kcal
+                      </span>
+                    )}
+                  </div>
+                  {dayDetail.foodEntries.length === 0 ? (
+                    <p className="text-sm text-muted-dark">Sin comidas registradas</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {dayDetail.foodEntries.map(entry => (
+                        <div key={entry.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-base shrink-0">{MEAL_TYPE_ICONS[entry.meal_type as keyof typeof MEAL_TYPE_ICONS]}</span>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{entry.food_name}</p>
+                              <p className="text-xs text-muted-dark">{MEAL_TYPE_LABELS[entry.meal_type as keyof typeof MEAL_TYPE_LABELS]}</p>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 ml-2">
+                            <p className="text-sm font-bold font-heading text-foreground">{entry.calories}</p>
+                            <p className="text-xs text-muted-dark">kcal</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Calorie summary */}
+                {dayDetail.foodEntries.length > 0 && (
+                  <div className={`rounded-xl p-3 flex items-center justify-between ${
+                    dayDetail.foodEntries.reduce((s, e) => s + e.calories, 0) <= profile.daily_calories
+                      ? 'bg-success/10 border border-success/20'
+                      : 'bg-danger/10 border border-danger/20'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <Flame className="w-4 h-4 text-accent-orange" />
+                      <span className="text-sm text-foreground">Objetivo calórico</span>
+                    </div>
+                    <span className={`text-sm font-semibold ${
+                      dayDetail.foodEntries.reduce((s, e) => s + e.calories, 0) <= profile.daily_calories
+                        ? 'text-success' : 'text-danger'
+                    }`}>
+                      {dayDetail.foodEntries.reduce((s, e) => s + e.calories, 0)} / {profile.daily_calories} kcal
+                    </span>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
