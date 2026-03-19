@@ -20,11 +20,12 @@ interface Props {
   foodEntries: FoodEntry[]
   challengeStartDate: string
   initialDate?: string
+  recentFoods: Array<{food_name: string, calories: number}>
 }
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
 
-export default function FoodClient({ userId, dailyCalories, foodEntries: initial, challengeStartDate, initialDate }: Props) {
+export default function FoodClient({ userId, dailyCalories, foodEntries: initial, challengeStartDate, initialDate, recentFoods }: Props) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -476,6 +477,24 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                     />
                     {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-lime animate-spin" />}
                   </div>
+
+                  {searchQuery === '' && !selectedFood && recentFoods.length > 0 && (
+                    <div className="mb-3 mt-2">
+                      <p className="text-xs text-muted mb-2 font-medium">Recientes</p>
+                      <div className="flex flex-wrap gap-2">
+                        {recentFoods.map(f => (
+                          <button
+                            key={f.food_name}
+                            onClick={() => handleSearchInput(f.food_name)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.05] hover:bg-white/[0.1] border border-border rounded-xl text-xs text-foreground transition-colors"
+                          >
+                            <span>{f.food_name}</span>
+                            <span className="text-muted-dark">{f.calories} kcal</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {searchResults.length > 0 && !selectedFood && (
                     <div className="mt-1 bg-elevated border border-border-strong rounded-xl overflow-hidden max-h-48 overflow-y-auto">

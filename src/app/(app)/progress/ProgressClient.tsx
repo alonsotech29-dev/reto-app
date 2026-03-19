@@ -121,6 +121,21 @@ export default function ProgressClient({ profile, userId: _userId, checklists, f
     }
   }, [pastDays, profile.daily_calories])
 
+  const adherenceData = useMemo(() => {
+    const last7 = chartData.filter(d => d.calories !== null).slice(-7)
+    return last7.map(d => {
+      const habitsCompleted = (d.steps === 1 ? 1 : 0) + (d.gym === 1 ? 1 : 0) +
+        (d.calories !== null && d.calories > 0 && d.calories <= profile.daily_calories ? 1 : 0)
+      const pct = Math.round((habitsCompleted / 3) * 100)
+      return {
+        label: `D${d.day}`,
+        pct,
+        habitsCompleted,
+        color: pct === 100 ? '#84cc16' : pct >= 66 ? '#f97316' : '#ef4444',
+      }
+    })
+  }, [chartData, profile.daily_calories])
+
   const progressPercent = Math.round((challengeDay / 30) * 100)
   const circumference = 2 * Math.PI * 40
 
@@ -343,6 +358,36 @@ export default function ProgressClient({ profile, userId: _userId, checklists, f
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-white/[0.03]" /> Pendiente</span>
             </div>
           </motion.div>
+
+          {/* Adherencia diaria */}
+          {adherenceData.length > 0 && (
+            <motion.div custom={5} variants={fadeUp} initial="hidden" animate="visible" className="card p-5">
+              <h2 className="font-semibold font-heading text-foreground mb-4 flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-warning" /> Adherencia diaria
+              </h2>
+              <div className="space-y-2">
+                {adherenceData.map(d => (
+                  <div key={d.label} className="flex items-center gap-3">
+                    <span className="text-xs text-muted w-8 shrink-0">{d.label}</span>
+                    <div className="flex-1 h-6 bg-white/[0.04] rounded-lg overflow-hidden">
+                      <div
+                        className="h-full rounded-lg transition-all duration-500"
+                        style={{ width: `${d.pct}%`, backgroundColor: d.color, opacity: 0.8 }}
+                      />
+                    </div>
+                    <span className="text-xs font-medium w-12 text-right" style={{ color: d.color }}>
+                      {d.habitsCompleted}/3
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-4 mt-3 text-xs text-muted justify-center">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-lime inline-block"/> Perfecto</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-accent-orange inline-block"/> Parcial</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-danger inline-block"/> Bajo</span>
+              </div>
+            </motion.div>
+          )}
         </div>
       </div>
     </div>

@@ -23,6 +23,7 @@ interface Props {
   totalCaloriesToday: number
   weightLog: WeightLog | null
   initialDate?: string
+  streak: number
 }
 
 const fadeUp = {
@@ -33,7 +34,7 @@ const fadeUp = {
   })
 }
 
-export default function DashboardClient({ profile, checklist, foodEntries, challengeDay, weightLog, initialDate }: Props) {
+export default function DashboardClient({ profile, checklist, foodEntries, challengeDay, weightLog, initialDate, streak }: Props) {
   const router = useRouter()
 
   const today = getTodayString()
@@ -159,11 +160,22 @@ export default function DashboardClient({ profile, checklist, foodEntries, chall
             {isToday ? `Hola, ${profile.name.split(' ')[0]}` : `Día ${selectedChallengeDay}`}
           </h1>
         </div>
-        <div className="flex items-center gap-2 bg-accent-orange/10 border border-accent-orange/20 rounded-2xl px-4 py-2.5">
-          <Flame className="w-5 h-5 text-accent-orange" />
-          <div className="text-center">
-            <span className="text-xl font-bold font-heading text-accent-orange">{challengeDay}</span>
-            <span className="text-xs text-muted ml-0.5">/ 30</span>
+        <div className="flex items-center gap-2">
+          {streak > 0 && (
+            <div className="flex items-center gap-2 bg-accent-orange/10 border border-accent-orange/20 rounded-2xl px-3 py-2">
+              <Flame className="w-4 h-4 text-accent-orange" />
+              <div className="text-center">
+                <span className="text-lg font-bold font-heading text-accent-orange">{streak}</span>
+                <span className="text-xs text-muted ml-0.5">racha</span>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-2 bg-accent-orange/10 border border-accent-orange/20 rounded-2xl px-4 py-2.5">
+            <Flame className="w-5 h-5 text-accent-orange" />
+            <div className="text-center">
+              <span className="text-xl font-bold font-heading text-accent-orange">{challengeDay}</span>
+              <span className="text-xs text-muted ml-0.5">/ 30</span>
+            </div>
           </div>
         </div>
       </motion.div>
