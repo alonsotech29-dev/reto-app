@@ -21,6 +21,8 @@ export async function GET(req: NextRequest) {
       search_expression: query,
       page_number: page,
       max_results: maxResults,
+      language: 'es',
+      region: 'ES',
     }) as Record<string, unknown>
 
     const foodsObj = data.foods as Record<string, unknown> | undefined
