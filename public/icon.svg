@@ -1,15 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#0a0a0a"/>
-  <rect width="512" height="512" rx="96" fill="url(#grad)"/>
   <defs>
-    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1a1a"/>
-      <stop offset="100%" style="stop-color:#0f0f0f"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#111113"/>
+      <stop offset="100%" style="stop-color:#09090b"/>
+    </linearGradient>
+    <linearGradient id="arc" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a3e635"/>
+      <stop offset="100%" style="stop-color:#65a30d"/>
     </linearGradient>
   </defs>
-  <!-- Flame icon -->
-  <path d="M256 100 C256 100 310 160 310 220 C310 240 300 255 286 262 C292 245 288 228 278 218 C278 218 270 270 240 285 C245 270 242 255 234 245 C220 270 210 295 220 320 C200 305 188 280 188 255 C188 220 210 190 230 170 C222 195 228 215 240 225 C235 195 242 140 256 100Z" fill="#84cc16"/>
-  <!-- 30 text -->
-  <text x="256" y="420" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="90" fill="#84cc16">30</text>
-  <text x="256" y="470" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="500" font-size="36" fill="#52525b" letter-spacing="4">DÍAS</text>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+
+  <!-- Decorative ring track -->
+  <circle cx="256" cy="220" r="130" fill="none" stroke="#1f1f23" stroke-width="18"/>
+
+  <!-- Progress arc (~75% = 270deg), starts from top (-90deg = -π/2) -->
+  <circle cx="256" cy="220" r="130"
+    fill="none"
+    stroke="url(#arc)"
+    stroke-width="18"
+    stroke-linecap="round"
+    stroke-dasharray="612 204"
+    stroke-dashoffset="204"
+    transform="rotate(-90 256 220)"/>
+
+  <!-- Bold number -->
+  <text x="256" y="248"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    font-family="system-ui, -apple-system, Arial Black, sans-serif"
+    font-weight="900"
+    font-size="120"
+    fill="#f4f4f5">30</text>
+
+  <!-- Label below ring -->
+  <text x="256" y="405"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-weight="600"
+    font-size="44"
+    letter-spacing="10"
+    fill="#84cc16">DÍAS</text>
 </svg>

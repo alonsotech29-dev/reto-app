@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 import { LayoutDashboard, Utensils, TrendingUp, User, Flame } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, getTodayString } from '@/lib/utils'
+import DatePickerCalendar from './DatePickerCalendar'
 
 const links = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Hoy' },
@@ -14,6 +15,13 @@ const links = [
 
 export default function SideNav() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const today = getTodayString()
+  const currentDate = searchParams.get('date') || today
+
+  const getTabHref = (href: string) =>
+    currentDate !== today ? `${href}?date=${currentDate}` : href
 
   return (
     <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:w-64 lg:flex-col bg-surface border-r border-border z-50">
@@ -28,6 +36,16 @@ export default function SideNav() {
         </div>
       </div>
 
+      {/* Global date selector */}
+      <div className="px-4 py-3 border-b border-border">
+        <p className="text-xs text-muted mb-2">Día seleccionado</p>
+        <DatePickerCalendar
+          value={currentDate}
+          onChange={date => router.push(`${pathname}?date=${date}`)}
+          align="down"
+        />
+      </div>
+
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1">
         {links.map(({ href, icon: Icon, label }) => {
@@ -35,7 +53,7 @@ export default function SideNav() {
           return (
             <Link
               key={href}
-              href={href}
+              href={getTabHref(href)}
               className={cn(
                 'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all',
                 active

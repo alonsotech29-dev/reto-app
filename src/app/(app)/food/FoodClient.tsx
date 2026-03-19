@@ -8,9 +8,10 @@ import { getTodayString, formatDate } from '@/lib/utils'
 import { getChallengeDay } from '@/lib/calories'
 import { FoodEntry, FoodSearchResult, Serving, MEAL_TYPE_LABELS, MEAL_TYPE_ICONS } from '@/types/database'
 import CalorieChart from '@/components/CalorieChart'
+import DatePickerCalendar from '@/components/DatePickerCalendar'
 import {
   Camera, Search, Plus, X, Loader2, Trash2,
-  Edit2, Check, ChevronDown, Zap, ChevronLeft, ChevronRight, AlertCircle
+  Edit2, Check, ChevronDown, AlertCircle, Zap
 } from 'lucide-react'
 
 interface Props {
@@ -18,16 +19,18 @@ interface Props {
   dailyCalories: number
   foodEntries: FoodEntry[]
   challengeStartDate: string
+  initialDate?: string
 }
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
 
-export default function FoodClient({ userId, dailyCalories, foodEntries: initial, challengeStartDate }: Props) {
+export default function FoodClient({ userId, dailyCalories, foodEntries: initial, challengeStartDate, initialDate }: Props) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Date selection
-  const [selectedDate, setSelectedDate] = useState(getTodayString())
+  const todayStr = getTodayString()
+  const [selectedDate, setSelectedDate] = useState(initialDate || todayStr)
   const [entries, setEntries] = useState<FoodEntry[]>(initial)
   const [loadingDate, setLoadingDate] = useState(false)
 
@@ -65,8 +68,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
   const totalCarbs = entries.reduce((s, e) => s + (e.carbs_g || 0), 0)
   const totalFat = entries.reduce((s, e) => s + (e.fat_g || 0), 0)
 
-  // Date navigation
-  const today = getTodayString()
+  const today = todayStr
   const isToday = selectedDate === today
   const challengeDay = getChallengeDay(challengeStartDate)
 
@@ -88,12 +90,8 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
     return diff
   }
 
-  const navigateDate = async (direction: 'prev' | 'next') => {
-    const date = new Date(selectedDate + 'T00:00:00')
-    date.setDate(date.getDate() + (direction === 'next' ? 1 : -1))
-    const newDateStr = formatDate(date)
+  const loadDate = async (newDateStr: string) => {
     if (newDateStr > today) return
-
     setSelectedDate(newDateStr)
     setLoadingDate(true)
     const supabase = createClient()
@@ -267,24 +265,18 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
 
       {/* Date navigator */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-3 mb-5">
-        <button
-          onClick={() => navigateDate('prev')}
-          className="p-1.5 rounded-lg hover:bg-white/[0.06] text-muted hover:text-foreground transition-colors"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <div className="text-center">
-          <p className="text-sm font-semibold text-foreground">{getDateLabel(selectedDate)}</p>
-          <p className="text-xs text-muted-dark">{new Date(selectedDate + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        className="flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3 mb-5">
+        <div className="flex-1 min-w-0">
+          {loadingDate ? (
+            <Loader2 className="w-4 h-4 text-lime animate-spin" />
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-foreground">{getDateLabel(selectedDate)}</p>
+              {selectedDayOfChallenge && <p className="text-xs text-muted-dark">Día {selectedDayOfChallenge} del reto</p>}
+            </>
+          )}
         </div>
-        <button
-          onClick={() => navigateDate('next')}
-          disabled={isToday}
-          className="p-1.5 rounded-lg hover:bg-white/[0.06] text-muted hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <ChevronRight className="w-5 h-5" />
-        </button>
+        <DatePickerCalendar value={selectedDate} onChange={loadDate} align="down" />
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">

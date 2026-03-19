@@ -1,10 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 import { LayoutDashboard, Utensils, TrendingUp, User } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { cn } from '@/lib/utils'
+import { cn, getTodayString } from '@/lib/utils'
+import DatePickerCalendar from './DatePickerCalendar'
 
 const links = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Hoy' },
@@ -15,14 +16,31 @@ const links = [
 
 export default function BottomNav() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const today = getTodayString()
+  const currentDate = searchParams.get('date') || today
+
+  const getTabHref = (href: string) =>
+    currentDate !== today ? `${href}?date=${currentDate}` : href
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-xl border-t border-border z-50 lg:hidden">
+      {/* Global date selector */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border/40">
+        <span className="text-xs text-muted">Viendo:</span>
+        <DatePickerCalendar
+          value={currentDate}
+          onChange={date => router.push(`${pathname}?date=${date}`)}
+          align="up"
+        />
+      </div>
+      {/* Tabs */}
       <div className="flex items-center justify-around px-2 py-1.5 max-w-lg mx-auto">
         {links.map(({ href, icon: Icon, label }) => {
           const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
           return (
-            <Link key={href} href={href} className="relative flex flex-col items-center gap-0.5 px-3 py-2">
+            <Link key={href} href={getTabHref(href)} className="relative flex flex-col items-center gap-0.5 px-3 py-2">
               {active && (
                 <motion.div
                   layoutId="bottomnav-pill"

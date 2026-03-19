@@ -9,9 +9,10 @@ import { getTodayString, formatDate } from '@/lib/utils'
 import { getChallengeDay } from '@/lib/calories'
 import { Profile, DailyChecklist, FoodEntry, WeightLog, MEAL_TYPE_LABELS, MEAL_TYPE_ICONS } from '@/types/database'
 import CalorieChart from '@/components/CalorieChart'
+import DatePickerCalendar from '@/components/DatePickerCalendar'
 import {
   Flame, Footprints, Dumbbell, Plus, CheckCircle2, Circle,
-  ChevronRight, Trophy, Zap, ChevronLeft, Loader2, Scale
+  ChevronRight, Trophy, Zap, Loader2, Scale
 } from 'lucide-react'
 
 interface Props {
@@ -66,12 +67,8 @@ export default function DashboardClient({ profile, checklist, foodEntries, chall
     return new Date(dateStr + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })
   }
 
-  const navigateDate = async (direction: 'prev' | 'next') => {
-    const date = new Date(selectedDate + 'T00:00:00')
-    date.setDate(date.getDate() + (direction === 'next' ? 1 : -1))
-    const newDateStr = formatDate(date)
+  const loadDate = async (newDateStr: string) => {
     if (newDateStr > today) return
-
     setSelectedDate(newDateStr)
     setLoadingDate(true)
     const supabase = createClient()
@@ -173,28 +170,18 @@ export default function DashboardClient({ profile, checklist, foodEntries, chall
 
       {/* Date navigator */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-3 mb-5">
-        <button onClick={() => navigateDate('prev')}
-          className="p-1.5 rounded-lg hover:bg-white/[0.06] text-muted hover:text-foreground transition-colors">
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <div className="text-center min-w-0">
+        className="flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3 mb-5">
+        <div className="flex-1 min-w-0">
           {loadingDate ? (
-            <Loader2 className="w-4 h-4 text-lime animate-spin mx-auto" />
+            <Loader2 className="w-4 h-4 text-lime animate-spin" />
           ) : (
             <>
               <p className="text-sm font-semibold text-foreground capitalize">{getDateLabel(selectedDate)}</p>
-              <p className="text-xs text-muted-dark">
-                {new Date(selectedDate + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
-                {' · '}Día {selectedChallengeDay}
-              </p>
+              <p className="text-xs text-muted-dark">Día {selectedChallengeDay} del reto</p>
             </>
           )}
         </div>
-        <button onClick={() => navigateDate('next')} disabled={isToday}
-          className="p-1.5 rounded-lg hover:bg-white/[0.06] text-muted hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-          <ChevronRight className="w-5 h-5" />
-        </button>
+        <DatePickerCalendar value={selectedDate} onChange={loadDate} align="down" />
       </motion.div>
 
       {/* Main grid */}

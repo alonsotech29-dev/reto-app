@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import BottomNav from '@/components/BottomNav'
 import SideNav from '@/components/SideNav'
@@ -19,11 +20,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen bg-background">
-      <SideNav />
-      <main className="lg:pl-64 pb-20 lg:pb-0">
+      <Suspense fallback={null}>
+        <SideNav />
+      </Suspense>
+      <main className="lg:pl-64 pb-24 lg:pb-0">
         {children}
       </main>
-      <BottomNav />
+      <Suspense fallback={null}>
+        <BottomNav />
+      </Suspense>
     </div>
   )
 }
