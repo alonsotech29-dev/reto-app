@@ -472,7 +472,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
 
                 {/* Food search */}
                 <div>
-                  <label className="block text-sm font-medium text-muted mb-2">Buscar alimento (FatSecret)</label>
+                  <label className="block text-sm font-medium text-muted mb-2">Buscar alimento</label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-dark" />
                     <input
