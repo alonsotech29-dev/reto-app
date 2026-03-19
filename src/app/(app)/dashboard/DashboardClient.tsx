@@ -21,6 +21,7 @@ interface Props {
   challengeDay: number
   totalCaloriesToday: number
   weightLog: WeightLog | null
+  initialDate?: string
 }
 
 const fadeUp = {
@@ -31,11 +32,11 @@ const fadeUp = {
   })
 }
 
-export default function DashboardClient({ profile, checklist, foodEntries, challengeDay, weightLog }: Props) {
+export default function DashboardClient({ profile, checklist, foodEntries, challengeDay, weightLog, initialDate }: Props) {
   const router = useRouter()
 
   const today = getTodayString()
-  const [selectedDate, setSelectedDate] = useState(today)
+  const [selectedDate, setSelectedDate] = useState(initialDate || today)
   const [localChecklist, setLocalChecklist] = useState(checklist)
   const [localFoodEntries, setLocalFoodEntries] = useState<FoodEntry[]>(foodEntries)
   const [loadingDate, setLoadingDate] = useState(false)

@@ -31,10 +31,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const data = await fatSecretRequest('food.get.v4', {
+    const data = await fatSecretRequest('food.get.v2', {
       food_id: foodId,
-      language: 'es',
-      region: 'ES',
     }) as FatSecretFoodResponse
 
     const food = data.food

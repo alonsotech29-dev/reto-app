@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
@@ -84,6 +85,7 @@ export default function ProgressClient({ profile, checklists, foodEntries, weigh
       return {
         day: dayNum,
         label: `D${dayNum}`,
+        dateStr,
         calories: isPast ? cals : null,
         steps: isPast ? (c?.steps_done ? 1 : 0) : null,
         gym: isPast ? (c?.gym_done ? 1 : 0) : null,
@@ -315,18 +317,24 @@ export default function ProgressClient({ profile, checklists, foodEntries, weigh
               <Calendar className="w-4 h-4 text-lime" /> Calendario del reto
             </h2>
             <div className="grid grid-cols-10 gap-1.5">
-              {chartData.map(d => (
-                <div key={d.day} title={`Dia ${d.day}`}
-                  className={`aspect-square rounded-lg flex items-center justify-center text-xs font-medium transition-all
-                    ${d.day > challengeDay ? 'bg-white/[0.03] text-muted-dark' :
-                      d.isPerfect ? 'bg-lime/20 text-lime border border-lime/30' :
-                      d.calories !== null && d.calories > 0 ? 'bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/20' :
-                      'bg-white/[0.03] text-muted-dark'
-                    }`}
-                >
-                  {d.day}
-                </div>
-              ))}
+              {chartData.map(d => {
+                const isPast = d.day <= challengeDay
+                const className = `aspect-square rounded-lg flex items-center justify-center text-xs font-medium transition-all
+                  ${!isPast ? 'bg-white/[0.03] text-muted-dark cursor-default' :
+                    d.isPerfect ? 'bg-lime/20 text-lime border border-lime/30 hover:ring-1 hover:ring-lime/50 cursor-pointer' :
+                    d.calories !== null && d.calories > 0 ? 'bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/20 hover:ring-1 hover:ring-accent-cyan/50 cursor-pointer' :
+                    'bg-white/[0.03] text-muted-dark hover:bg-white/[0.06] cursor-pointer'
+                  }`
+                return isPast ? (
+                  <Link key={d.day} href={`/dashboard?date=${d.dateStr}`} title={`Día ${d.day} · ${d.dateStr}`} className={className}>
+                    {d.day}
+                  </Link>
+                ) : (
+                  <div key={d.day} title={`Día ${d.day}`} className={className}>
+                    {d.day}
+                  </div>
+                )
+              })}
             </div>
             <div className="flex gap-4 mt-3 text-xs text-muted">
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-lime/20 border border-lime/30" /> Perfecto</span>

@@ -10,10 +10,8 @@ interface FatSecretFood {
 }
 
 interface FatSecretSearchResponse {
-  foods_search?: {
-    results?: {
-      food?: FatSecretFood | FatSecretFood[]
-    }
+  foods?: {
+    food?: FatSecretFood | FatSecretFood[]
     total_results?: string
   }
 }
@@ -26,15 +24,13 @@ export async function GET(req: NextRequest) {
   if (!query) return NextResponse.json({ foods: [] })
 
   try {
-    const data = await fatSecretRequest('foods.search.v3', {
+    const data = await fatSecretRequest('foods.search', {
       search_expression: query,
       page_number: page,
       max_results: maxResults,
-      language: 'es',
-      region: 'ES',
     }) as FatSecretSearchResponse
 
-    const rawFoods = data.foods_search?.results?.food
+    const rawFoods = data.foods?.food
     if (!rawFoods) return NextResponse.json({ foods: [] })
 
     const foodArray = Array.isArray(rawFoods) ? rawFoods : [rawFoods]
@@ -48,7 +44,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       foods,
-      total: parseInt(data.foods_search?.total_results || '0'),
+      total: parseInt(data.foods?.total_results || '0'),
     })
   } catch (error) {
     console.error('FatSecret search error:', error)
