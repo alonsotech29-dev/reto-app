@@ -316,14 +316,14 @@ export default function ProgressClient({ profile, checklists, foodEntries, weigh
             <h2 className="font-semibold font-heading text-foreground mb-4 flex items-center gap-2">
               <Calendar className="w-4 h-4 text-lime" /> Calendario del reto
             </h2>
-            <div className="grid grid-cols-10 gap-1.5">
+            <div className="grid grid-cols-6 lg:grid-cols-10 gap-2 lg:gap-1.5">
               {chartData.map(d => {
                 const isPast = d.day <= challengeDay
-                const className = `aspect-square rounded-lg flex items-center justify-center text-xs font-medium transition-all
+                const className = `aspect-square rounded-xl flex items-center justify-center text-sm lg:text-xs font-medium transition-all
                   ${!isPast ? 'bg-white/[0.03] text-muted-dark cursor-default' :
-                    d.isPerfect ? 'bg-lime/20 text-lime border border-lime/30 hover:ring-1 hover:ring-lime/50 cursor-pointer' :
-                    d.calories !== null && d.calories > 0 ? 'bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/20 hover:ring-1 hover:ring-accent-cyan/50 cursor-pointer' :
-                    'bg-white/[0.03] text-muted-dark hover:bg-white/[0.06] cursor-pointer'
+                    d.isPerfect ? 'bg-lime/20 text-lime border border-lime/30 hover:ring-2 hover:ring-lime/50 cursor-pointer' :
+                    d.calories !== null && d.calories > 0 ? 'bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/20 hover:ring-2 hover:ring-accent-cyan/50 cursor-pointer' :
+                    'bg-white/[0.05] text-muted-dark hover:bg-white/[0.1] cursor-pointer'
                   }`
                 return isPast ? (
                   <Link key={d.day} href={`/dashboard?date=${d.dateStr}`} title={`Día ${d.day} · ${d.dateStr}`} className={className}>
