@@ -4,16 +4,33 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { calculateDailyCalories, ACTIVITY_LABELS, type ActivityLevel, type Gender } from '@/lib/calories'
+import { ACTIVITY_LABELS, type ActivityLevel, type Gender } from '@/lib/calories'
 import { Profile, WeightLog } from '@/types/database'
 import { getChallengeDay } from '@/lib/calories'
 import { getTodayString } from '@/lib/utils'
 import {
   User, LogOut, Save, Loader2, Flame, Calendar,
-  Weight, Ruler, Activity, Target, TrendingDown, Plus, Check
+  Weight, Ruler, Activity, Target, TrendingDown, Plus, Check,
+  Calculator, ChevronDown, ChevronUp
 } from 'lucide-react'
 
 interface Props { profile: Profile; email: string }
+
+// Harris-Benedict BMR
+function calcHarrisBenedict(weightKg: number, heightCm: number, age: number, gender: Gender): number {
+  if (gender === 'male') {
+    return 88.362 + (13.397 * weightKg) + (4.799 * heightCm) - (5.677 * age)
+  } else {
+    return 447.593 + (9.247 * weightKg) + (3.098 * heightCm) - (4.330 * age)
+  }
+}
+
+const TDEE_ACTIVITY_FACTORS: Record<string, { factor: number; label: string; desc: string }> = {
+  sedentary: { factor: 1.2, label: 'Sedentario', desc: 'Poco o nada de ejercicio' },
+  light:     { factor: 1.375, label: 'Ligero',     desc: 'Ejercicio ligero 1-3 días' },
+  moderate:  { factor: 1.55,  label: 'Moderado',   desc: 'Ejercicio moderado 3-5 días' },
+  active:    { factor: 1.725, label: 'Activo',     desc: 'Ejercicio intenso 6-7 días' },
+}
 
 export default function ProfileClient({ profile, email }: Props) {
   const router = useRouter()
@@ -37,14 +54,41 @@ export default function ProfileClient({ profile, email }: Props) {
   const [weightError, setWeightError] = useState<string | null>(null)
   const [loadingWeightLogs, setLoadingWeightLogs] = useState(true)
 
-  const update = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }))
+  // TDEE calculator state
+  const [calcOpen, setCalcOpen] = useState(false)
+  const [calcForm, setCalcForm] = useState({
+    weight_kg: String(profile.weight_kg),
+    height_cm: String(profile.height_cm),
+    age: String(profile.age),
+    gender: profile.gender as Gender,
+    activity_level: (profile.activity_level in TDEE_ACTIVITY_FACTORS ? profile.activity_level : 'moderate') as keyof typeof TDEE_ACTIVITY_FACTORS,
+    deficit: 500,
+  })
+  const [calcSaving, setCalcSaving] = useState(false)
+  const [calcSaved, setCalcSaved] = useState(false)
+  const [calcError, setCalcError] = useState<string | null>(null)
 
-  const newCalories = form.age && form.weight_kg && form.height_cm
-    ? calculateDailyCalories(
-        parseFloat(form.weight_kg), parseFloat(form.height_cm),
-        parseInt(form.age), form.gender, form.activity_level
-      )
-    : profile.daily_calories
+  // Direct daily_calories edit state
+  const [directCalories, setDirectCalories] = useState(String(profile.daily_calories))
+  const [savingCalories, setSavingCalories] = useState(false)
+  const [savedCalories, setSavedCalories] = useState(false)
+
+  const update = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }))
+  const updateCalc = (field: string, value: string | number) =>
+    setCalcForm(prev => ({ ...prev, [field]: value }))
+
+  // Computed TDEE result
+  const tdeeResult = (() => {
+    const w = parseFloat(calcForm.weight_kg)
+    const h = parseFloat(calcForm.height_cm)
+    const a = parseInt(calcForm.age)
+    if (!w || !h || !a || w < 30 || h < 100 || a < 10) return null
+    const bmr = calcHarrisBenedict(w, h, a, calcForm.gender)
+    const factor = TDEE_ACTIVITY_FACTORS[calcForm.activity_level]?.factor ?? 1.55
+    const tdee = bmr * factor
+    const goal = Math.round(tdee - calcForm.deficit)
+    return { bmr: Math.round(bmr), tdee: Math.round(tdee), goal }
+  })()
 
   const challengeDay = getChallengeDay(profile.challenge_start_date)
   const endDate = new Date(profile.challenge_start_date)
@@ -61,7 +105,6 @@ export default function ProfileClient({ profile, email }: Props) {
         .eq('user_id', profile.id)
         .order('date', { ascending: false })
         .limit(10)
-      // If table doesn't exist yet, error is set - silently skip
       if (!logsError) setWeightLogs(data || [])
       setLoadingWeightLogs(false)
     }
@@ -71,6 +114,28 @@ export default function ProfileClient({ profile, email }: Props) {
   const handleSave = async () => {
     setSaving(true)
     const supabase = createClient()
+    const newCalories = form.age && form.weight_kg && form.height_cm
+      ? (() => {
+          // Use Mifflin formula (existing behavior)
+          const w = parseFloat(form.weight_kg)
+          const h = parseFloat(form.height_cm)
+          const a = parseInt(form.age)
+          const activityMultipliers: Record<string, number> = {
+            sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9,
+          }
+          let bmr: number
+          if (form.gender === 'male') {
+            bmr = 10 * w + 6.25 * h - 5 * a + 5
+          } else {
+            bmr = 10 * w + 6.25 * h - 5 * a - 161
+          }
+          const tdee = bmr * (activityMultipliers[form.activity_level] || 1.55)
+          const target = Math.round(tdee - 500)
+          const min = form.gender === 'male' ? 1500 : 1200
+          return Math.max(target, min)
+        })()
+      : profile.daily_calories
+
     await supabase.from('profiles').update({
       name: form.name,
       age: parseInt(form.age),
@@ -116,7 +181,6 @@ export default function ProfileClient({ profile, email }: Props) {
         setWeightSaved(true)
         setTimeout(() => setWeightSaved(false), 2000)
 
-        // Also update profile weight
         await supabase.from('profiles').update({ weight_kg: kg }).eq('id', profile.id)
         router.refresh()
       }
@@ -124,6 +188,41 @@ export default function ProfileClient({ profile, email }: Props) {
       setWeightError('Error al guardar. Asegúrate de haber ejecutado la migración de peso.')
     }
     setSavingWeight(false)
+  }
+
+  const handleApplyTDEE = async () => {
+    if (!tdeeResult) return
+    setCalcSaving(true)
+    setCalcError(null)
+    const supabase = createClient()
+    const { error } = await supabase.from('profiles').update({
+      daily_calories: tdeeResult.goal,
+      weight_kg: parseFloat(calcForm.weight_kg),
+      height_cm: parseFloat(calcForm.height_cm),
+      age: parseInt(calcForm.age),
+      activity_level: calcForm.activity_level,
+    }).eq('id', profile.id)
+    if (error) {
+      setCalcError('Error al guardar. Inténtalo de nuevo.')
+    } else {
+      setCalcSaved(true)
+      setDirectCalories(String(tdeeResult.goal))
+      setTimeout(() => { setCalcSaved(false); setCalcOpen(false) }, 2000)
+      router.refresh()
+    }
+    setCalcSaving(false)
+  }
+
+  const handleSaveDirectCalories = async () => {
+    const val = parseInt(directCalories)
+    if (!val || val < 800 || val > 5000) return
+    setSavingCalories(true)
+    const supabase = createClient()
+    await supabase.from('profiles').update({ daily_calories: val }).eq('id', profile.id)
+    setSavingCalories(false)
+    setSavedCalories(true)
+    setTimeout(() => setSavedCalories(false), 2000)
+    router.refresh()
   }
 
   const handleLogout = async () => {
@@ -134,6 +233,7 @@ export default function ProfileClient({ profile, email }: Props) {
   }
 
   const inputClass = "w-full bg-background border border-border-strong rounded-xl px-4 py-3 text-foreground focus:outline-none focus:border-lime transition-colors"
+  const calcInputClass = "w-full bg-background border border-border-strong rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-lime transition-colors"
 
   // Weight trend
   const latestWeight = weightLogs[0]?.weight_kg
@@ -189,6 +289,196 @@ export default function ProfileClient({ profile, email }: Props) {
                 <span>{profile.gym_days_per_week} días gym/semana</span>
               </div>
             </div>
+          </motion.div>
+
+          {/* TDEE Calculator card */}
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
+            className="bg-white/[0.03] border border-border-strong rounded-2xl overflow-hidden">
+
+            {/* Header row — always visible */}
+            <button
+              onClick={() => setCalcOpen(o => !o)}
+              className="w-full flex items-center justify-between p-5 text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-accent-orange/15 flex items-center justify-center shrink-0">
+                  <Calculator className="w-4 h-4 text-accent-orange" />
+                </div>
+                <div>
+                  <p className="font-semibold font-heading text-foreground text-sm">Recalcular objetivo</p>
+                  <p className="text-xs text-muted">Calculadora TDEE · Harris-Benedict</p>
+                </div>
+              </div>
+              {calcOpen
+                ? <ChevronUp className="w-4 h-4 text-muted shrink-0" />
+                : <ChevronDown className="w-4 h-4 text-muted shrink-0" />
+              }
+            </button>
+
+            {/* Expanded calculator */}
+            {calcOpen && (
+              <div className="px-5 pb-5 space-y-4 border-t border-border">
+
+                {/* Weight + Height */}
+                <div className="grid grid-cols-2 gap-3 pt-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted mb-1.5 flex items-center gap-1">
+                      <Weight className="w-3 h-3" /> Peso (kg)
+                    </label>
+                    <input
+                      type="number" step="0.1" min="30" max="300"
+                      value={calcForm.weight_kg}
+                      onChange={e => updateCalc('weight_kg', e.target.value)}
+                      className={calcInputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted mb-1.5 flex items-center gap-1">
+                      <Ruler className="w-3 h-3" /> Altura (cm)
+                    </label>
+                    <input
+                      type="number" min="100" max="250"
+                      value={calcForm.height_cm}
+                      onChange={e => updateCalc('height_cm', e.target.value)}
+                      className={calcInputClass}
+                    />
+                  </div>
+                </div>
+
+                {/* Age + Gender */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted mb-1.5">Edad</label>
+                    <input
+                      type="number" min="10" max="100"
+                      value={calcForm.age}
+                      onChange={e => updateCalc('age', e.target.value)}
+                      className={calcInputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted mb-1.5">Género</label>
+                    <div className="flex gap-2">
+                      {(['male', 'female'] as Gender[]).map(g => (
+                        <button
+                          key={g}
+                          onClick={() => updateCalc('gender', g)}
+                          className={`flex-1 py-2.5 rounded-xl text-xs font-medium border transition-all ${
+                            calcForm.gender === g
+                              ? 'bg-lime/10 text-lime border-lime/20'
+                              : 'bg-white/[0.03] text-muted border-border hover:bg-white/[0.06]'
+                          }`}
+                        >
+                          {g === 'male' ? 'Hombre' : 'Mujer'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Activity level */}
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">Nivel de actividad</label>
+                  <div className="space-y-1.5">
+                    {Object.entries(TDEE_ACTIVITY_FACTORS).map(([key, { label, desc }]) => (
+                      <button
+                        key={key}
+                        onClick={() => updateCalc('activity_level', key)}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left border transition-all ${
+                          calcForm.activity_level === key
+                            ? 'bg-lime/10 text-lime border-lime/20'
+                            : 'bg-white/[0.03] text-muted border-border hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <span className="text-xs font-medium">{label}</span>
+                        <span className={`text-xs ${calcForm.activity_level === key ? 'text-lime/70' : 'text-muted-dark'}`}>{desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Deficit */}
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">Déficit calórico</label>
+                  <div className="flex gap-2">
+                    {[300, 400, 500].map(d => (
+                      <button
+                        key={d}
+                        onClick={() => updateCalc('deficit', d)}
+                        className={`flex-1 py-2.5 rounded-xl text-xs font-medium border transition-all ${
+                          calcForm.deficit === d
+                            ? 'bg-lime/10 text-lime border-lime/20'
+                            : 'bg-white/[0.03] text-muted border-border hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        -{d} kcal
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Result box */}
+                {tdeeResult && (
+                  <div className="bg-lime/5 border border-lime/20 rounded-xl p-4 space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">BMR (metabolismo basal)</span>
+                      <span className="font-medium text-foreground">{tdeeResult.bmr} kcal</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">TDEE (gasto total)</span>
+                      <span className="font-medium text-foreground">{tdeeResult.tdee} kcal</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1 border-t border-lime/20">
+                      <span className="text-sm font-semibold text-foreground">Objetivo recomendado</span>
+                      <span className="text-xl font-bold font-heading text-lime">{tdeeResult.goal} kcal</span>
+                    </div>
+                  </div>
+                )}
+
+                {calcError && <p className="text-xs text-danger">{calcError}</p>}
+
+                {/* Apply button */}
+                <button
+                  onClick={handleApplyTDEE}
+                  disabled={calcSaving || !tdeeResult}
+                  className="w-full py-3 bg-lime hover:bg-lime-dark disabled:opacity-50 text-background font-semibold rounded-xl flex items-center justify-center gap-2 transition-all text-sm"
+                >
+                  {calcSaving
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : calcSaved
+                    ? <><Check className="w-4 h-4" /> Aplicado</>
+                    : <><Calculator className="w-4 h-4" /> Aplicar objetivo</>
+                  }
+                </button>
+              </div>
+            )}
+
+            {/* Quick edit calories — always visible below header */}
+            {!calcOpen && (
+              <div className="px-5 pb-5 pt-0">
+                <div className="flex gap-2 items-center">
+                  <div className="flex-1">
+                    <label className="block text-xs text-muted mb-1">Editar objetivo calórico diario</label>
+                    <input
+                      type="number"
+                      value={directCalories}
+                      onChange={e => setDirectCalories(e.target.value)}
+                      min="800"
+                      max="5000"
+                      className="w-full bg-background border border-border-strong rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-lime transition-colors"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveDirectCalories}
+                    disabled={savingCalories}
+                    className="mt-5 px-4 py-2.5 bg-lime/10 border border-lime/30 text-lime hover:bg-lime/20 disabled:opacity-40 rounded-xl font-medium text-sm flex items-center gap-1.5 transition-all shrink-0"
+                  >
+                    {savingCalories ? <Loader2 className="w-4 h-4 animate-spin" /> : savedCalories ? <Check className="w-4 h-4" /> : <Save className="w-3.5 h-3.5" />}
+                    {savedCalories ? 'Guardado' : 'Guardar'}
+                  </button>
+                </div>
+              </div>
+            )}
           </motion.div>
 
           {/* Weight registration */}
@@ -348,13 +638,6 @@ export default function ProfileClient({ profile, email }: Props) {
               ))}
             </div>
           </div>
-
-          {newCalories !== profile.daily_calories && (
-            <div className="p-3 rounded-xl bg-lime/10 border border-lime/20">
-              <p className="text-xs text-muted">Nuevo objetivo calórico calculado:</p>
-              <p className="text-xl font-bold font-heading text-lime">{newCalories} kcal/día</p>
-            </div>
-          )}
 
           <button onClick={handleSave} disabled={saving}
             className="w-full py-3 bg-lime hover:bg-lime-dark disabled:opacity-50 text-background font-semibold rounded-xl flex items-center justify-center gap-2 transition-all">

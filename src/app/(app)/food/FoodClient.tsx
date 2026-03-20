@@ -11,7 +11,8 @@ import CalorieChart from '@/components/CalorieChart'
 import DatePickerCalendar from '@/components/DatePickerCalendar'
 import {
   Camera, Search, Plus, X, Loader2, Trash2,
-  Edit2, Check, ChevronDown, AlertCircle, Zap
+  Edit2, Check, ChevronDown, AlertCircle, Zap,
+  Star, Copy, BookmarkPlus, BookOpen
 } from 'lucide-react'
 
 interface Props {
@@ -21,6 +22,13 @@ interface Props {
   challengeStartDate: string
   initialDate?: string
   recentFoods: Array<{food_name: string, calories: number}>
+}
+
+interface SavedMeal {
+  id: string
+  name: string
+  items: Array<{ food_name: string; calories: number; protein_g: number; carbs_g: number; fat_g: number; meal_type: string }>
+  total_calories: number
 }
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
@@ -64,6 +72,47 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
   const [saveError, setSaveError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
+  // Favorites (localStorage)
+  const [favorites, setFavorites] = useState<Array<{food_id: string, food_name: string, brand_name?: string, calories: number, protein: number, carbs: number, fat: number}>>(() => {
+    if (typeof window === 'undefined') return []
+    try { return JSON.parse(localStorage.getItem('reto-favorites') || '[]') } catch { return [] }
+  })
+  const toggleFavorite = (food: FoodSearchResult, serving: Serving | null) => {
+    const existing = favorites.find(f => f.food_id === food.food_id)
+    let next: typeof favorites
+    if (existing) {
+      next = favorites.filter(f => f.food_id !== food.food_id)
+    } else {
+      next = [...favorites, {
+        food_id: food.food_id,
+        food_name: food.food_name,
+        brand_name: food.brand_name,
+        calories: serving?.calories || 0,
+        protein: serving?.protein_g || 0,
+        carbs: serving?.carbs_g || 0,
+        fat: serving?.fat_g || 0,
+      }]
+    }
+    setFavorites(next)
+    localStorage.setItem('reto-favorites', JSON.stringify(next))
+  }
+  const isFavorite = (food_id: string) => favorites.some(f => f.food_id === food_id)
+
+  // Copy day state
+  const [showCopyModal, setShowCopyModal] = useState(false)
+  const [copySourceDate, setCopySourceDate] = useState('')
+  const [copyEntries, setCopyEntries] = useState<FoodEntry[]>([])
+  const [loadingCopy, setLoadingCopy] = useState(false)
+  const [copying, setCopying] = useState(false)
+
+  // Saved meals (localStorage)
+  const [savedMeals, setSavedMeals] = useState<SavedMeal[]>(() => {
+    if (typeof window === 'undefined') return []
+    try { return JSON.parse(localStorage.getItem('reto-saved-meals') || '[]') } catch { return [] }
+  })
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [saveMealName, setSaveMealName] = useState('')
+
   const totalCalories = entries.reduce((s, e) => s + e.calories, 0)
   const totalProtein = entries.reduce((s, e) => s + (e.protein_g || 0), 0)
   const totalCarbs = entries.reduce((s, e) => s + (e.carbs_g || 0), 0)
@@ -104,6 +153,99 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
       .order('created_at')
     setEntries(data || [])
     setLoadingDate(false)
+  }
+
+  // Copy day functions
+  const loadCopyEntries = async (sourceDate: string) => {
+    if (!sourceDate || sourceDate >= selectedDate) return
+    setCopySourceDate(sourceDate)
+    setLoadingCopy(true)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('food_entries')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', sourceDate)
+      .order('created_at')
+    setCopyEntries(data || [])
+    setLoadingCopy(false)
+  }
+
+  const executeCopy = async () => {
+    if (copyEntries.length === 0) return
+    setCopying(true)
+    const supabase = createClient()
+    const toInsert = copyEntries.map(e => ({
+      user_id: userId,
+      date: selectedDate,
+      meal_type: e.meal_type,
+      food_name: e.food_name,
+      calories: e.calories,
+      protein_g: e.protein_g,
+      carbs_g: e.carbs_g,
+      fat_g: e.fat_g,
+      analysis_source: 'manual' as const,
+    }))
+    const { data } = await supabase.from('food_entries').insert(toInsert).select()
+    if (data) {
+      setEntries(prev => [...prev, ...data])
+      setShowCopyModal(false)
+      setCopyEntries([])
+      setCopySourceDate('')
+      if (selectedDate === today) router.refresh()
+    }
+    setCopying(false)
+  }
+
+  // Saved meals functions
+  const saveCurrentAsMeal = () => {
+    if (!saveMealName.trim() || entries.length === 0) return
+    const newMeal: SavedMeal = {
+      id: Date.now().toString(),
+      name: saveMealName.trim(),
+      items: entries.map(e => ({
+        food_name: e.food_name,
+        calories: e.calories,
+        protein_g: e.protein_g || 0,
+        carbs_g: e.carbs_g || 0,
+        fat_g: e.fat_g || 0,
+        meal_type: e.meal_type,
+      })),
+      total_calories: entries.reduce((s, e) => s + e.calories, 0),
+    }
+    const next = [...savedMeals, newMeal]
+    setSavedMeals(next)
+    localStorage.setItem('reto-saved-meals', JSON.stringify(next))
+    setSaveMealName('')
+    setShowSaveModal(false)
+  }
+
+  const deleteSavedMeal = (id: string) => {
+    const next = savedMeals.filter(m => m.id !== id)
+    setSavedMeals(next)
+    localStorage.setItem('reto-saved-meals', JSON.stringify(next))
+  }
+
+  const applySavedMeal = async (meal: SavedMeal) => {
+    setSaving(true)
+    const supabase = createClient()
+    const toInsert = meal.items.map(item => ({
+      user_id: userId,
+      date: selectedDate,
+      meal_type: item.meal_type,
+      food_name: item.food_name,
+      calories: item.calories,
+      protein_g: item.protein_g,
+      carbs_g: item.carbs_g,
+      fat_g: item.fat_g,
+      analysis_source: 'manual' as const,
+    }))
+    const { data } = await supabase.from('food_entries').insert(toInsert).select()
+    if (data) {
+      setEntries(prev => [...prev, ...data])
+      if (selectedDate === today) router.refresh()
+    }
+    setSaving(false)
   }
 
   // Debounced search
@@ -256,12 +398,20 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
             <p className="text-muted text-sm">Día {selectedDayOfChallenge} del reto</p>
           )}
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-lime hover:bg-lime-dark text-background text-sm font-semibold rounded-xl transition-all"
-        >
-          <Plus className="w-4 h-4" /> Añadir
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowCopyModal(true)}
+            className="flex items-center gap-2 px-3 py-2.5 bg-white/[0.06] hover:bg-white/[0.1] text-muted text-sm font-medium rounded-xl border border-border transition-all"
+          >
+            <Copy className="w-4 h-4" /> Copiar día
+          </button>
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-lime hover:bg-lime-dark text-background text-sm font-semibold rounded-xl transition-all"
+          >
+            <Plus className="w-4 h-4" /> Añadir
+          </button>
+        </div>
       </motion.div>
 
       {/* Date navigator */}
@@ -363,6 +513,45 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
             )
           })}
 
+          {/* Save current as template */}
+          {!loadingDate && entries.length > 0 && (
+            <div className="flex justify-center mt-2">
+              <button
+                onClick={() => setShowSaveModal(true)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-white/[0.04] hover:bg-white/[0.07] border border-border rounded-xl text-xs text-muted transition-colors"
+              >
+                <BookmarkPlus className="w-3.5 h-3.5" /> Guardar como plantilla
+              </button>
+            </div>
+          )}
+
+          {/* Apply saved meal */}
+          {!loadingDate && savedMeals.length > 0 && entries.length === 0 && (
+            <div className="card p-5">
+              <h3 className="font-semibold font-heading text-foreground text-sm mb-3 flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-lime" /> Plantillas guardadas
+              </h3>
+              <div className="space-y-2">
+                {savedMeals.map(meal => (
+                  <div key={meal.id} className="flex items-center gap-3 p-3 bg-white/[0.03] hover:bg-white/[0.05] rounded-xl border border-border transition-colors">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-foreground">{meal.name}</p>
+                      <p className="text-xs text-muted-dark">{meal.items.length} alimentos · {meal.total_calories} kcal</p>
+                    </div>
+                    <button onClick={() => applySavedMeal(meal)} disabled={saving}
+                      className="px-3 py-1.5 bg-lime/10 hover:bg-lime/20 text-lime text-xs font-medium rounded-lg border border-lime/20 transition-colors">
+                      Usar
+                    </button>
+                    <button onClick={() => deleteSavedMeal(meal.id)}
+                      className="text-muted-dark hover:text-danger transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {!loadingDate && entries.length === 0 && (
             <div className="text-center py-16 text-muted">
               <Zap className="w-10 h-10 mx-auto mb-3 text-muted-dark" />
@@ -373,7 +562,7 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
         </div>
       </div>
 
-      {/* Add food modal */}
+      {/* Modals */}
       <AnimatePresence>
         {showForm && (
           <motion.div
@@ -496,15 +685,44 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                     </div>
                   )}
 
+                  {searchQuery === '' && !selectedFood && favorites.length > 0 && (
+                    <div className="mb-3 mt-3">
+                      <p className="text-xs text-muted mb-2 font-medium flex items-center gap-1">
+                        <Star className="w-3 h-3 text-warning" fill="currentColor" /> Favoritos
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {favorites.map(f => (
+                          <button
+                            key={f.food_id}
+                            onClick={() => handleSearchInput(f.food_name)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-warning/5 hover:bg-warning/10 border border-warning/20 rounded-xl text-xs text-foreground transition-colors"
+                          >
+                            <Star className="w-3 h-3 text-warning shrink-0" fill="currentColor" />
+                            <span>{f.food_name}</span>
+                            <span className="text-muted-dark">{f.calories} kcal</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {searchResults.length > 0 && !selectedFood && (
                     <div className="mt-1 bg-elevated border border-border-strong rounded-xl overflow-hidden max-h-48 overflow-y-auto">
                       {searchResults.map((result) => (
-                        <button key={result.food_id} onClick={() => selectSearchResult(result)}
-                          className="w-full px-4 py-3 hover:bg-white/[0.04] border-b border-border last:border-0 text-left transition-colors">
-                          <p className="text-sm font-medium text-foreground">{result.food_name}</p>
-                          {result.brand_name && <p className="text-xs text-muted-dark">{result.brand_name}</p>}
-                          <p className="text-xs text-muted mt-0.5 line-clamp-1">{result.food_description}</p>
-                        </button>
+                        <div key={result.food_id} className="flex items-center border-b border-border last:border-0">
+                          <button onClick={() => selectSearchResult(result)}
+                            className="flex-1 px-4 py-3 hover:bg-white/[0.04] text-left transition-colors">
+                            <p className="text-sm font-medium text-foreground">{result.food_name}</p>
+                            {result.brand_name && <p className="text-xs text-muted-dark">{result.brand_name}</p>}
+                            <p className="text-xs text-muted mt-0.5 line-clamp-1">{result.food_description}</p>
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleFavorite(result, null) }}
+                            className={`p-1.5 rounded-lg transition-colors shrink-0 mr-2 ${isFavorite(result.food_id) ? 'text-warning' : 'text-muted-dark hover:text-warning'}`}
+                          >
+                            <Star className="w-4 h-4" fill={isFavorite(result.food_id) ? 'currentColor' : 'none'} />
+                          </button>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -515,9 +733,17 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                   <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                     className="bg-lime/5 border border-lime/20 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-foreground">{selectedFood.food_name}</p>
-                      <button onClick={() => { setSelectedFood(null); setServings([]); setSelectedServing(null); setSearchQuery(''); }}
-                        className="text-muted-dark hover:text-foreground"><X className="w-4 h-4" /></button>
+                      <p className="text-sm font-semibold text-foreground flex-1 mr-2">{selectedFood.food_name}</p>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => toggleFavorite(selectedFood, selectedServing)}
+                          className={`p-1.5 rounded-lg transition-colors ${isFavorite(selectedFood.food_id) ? 'text-warning' : 'text-muted-dark hover:text-warning'}`}
+                        >
+                          <Star className="w-4 h-4" fill={isFavorite(selectedFood.food_id) ? 'currentColor' : 'none'} />
+                        </button>
+                        <button onClick={() => { setSelectedFood(null); setServings([]); setSelectedServing(null); setSearchQuery(''); }}
+                          className="text-muted-dark hover:text-foreground"><X className="w-4 h-4" /></button>
+                      </div>
                     </div>
 
                     {loadingServings ? (
@@ -640,6 +866,121 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
 
                 {/* Bottom padding for mobile safe area */}
                 <div className="h-2" />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {showCopyModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end lg:items-center justify-center"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowCopyModal(false) }}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-card rounded-t-2xl lg:rounded-2xl w-full max-w-lg flex flex-col border border-border-strong shadow-2xl"
+              style={{ maxHeight: '80dvh' }}
+            >
+              <div className="flex justify-between items-center p-5 border-b border-border shrink-0">
+                <div>
+                  <h2 className="text-lg font-semibold font-heading text-foreground">Copiar comidas</h2>
+                  <p className="text-xs text-muted">Selecciona un día anterior para copiar sus comidas</p>
+                </div>
+                <button onClick={() => setShowCopyModal(false)} className="text-muted hover:text-foreground">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-2">Día origen</label>
+                  <DatePickerCalendar
+                    value={copySourceDate || ''}
+                    onChange={loadCopyEntries}
+                    align="down"
+                  />
+                </div>
+
+                {loadingCopy && (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="w-5 h-5 text-lime animate-spin" />
+                  </div>
+                )}
+
+                {!loadingCopy && copySourceDate && copyEntries.length === 0 && (
+                  <p className="text-sm text-muted text-center py-4">Sin comidas registradas ese día</p>
+                )}
+
+                {!loadingCopy && copyEntries.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted font-medium">{copyEntries.length} comidas a copiar:</p>
+                    {copyEntries.map(e => (
+                      <div key={e.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                        <div>
+                          <p className="text-sm text-foreground">{e.food_name}</p>
+                          <p className="text-xs text-muted-dark">{MEAL_TYPE_LABELS[e.meal_type as keyof typeof MEAL_TYPE_LABELS]}</p>
+                        </div>
+                        <span className="text-sm font-medium text-muted">{e.calories} kcal</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {copyEntries.length > 0 && (
+                  <button
+                    onClick={executeCopy}
+                    disabled={copying}
+                    className="w-full py-3 bg-lime hover:bg-lime-dark disabled:opacity-40 text-background font-semibold rounded-xl flex items-center justify-center gap-2 transition-all"
+                  >
+                    {copying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                    {copying ? 'Copiando...' : `Copiar ${copyEntries.length} comidas a ${getDateLabel(selectedDate)}`}
+                  </button>
+                )}
+                <div className="h-2" />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {showSaveModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowSaveModal(false) }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-card rounded-2xl w-full max-w-sm p-5 border border-border-strong shadow-2xl"
+            >
+              <h3 className="text-lg font-semibold font-heading text-foreground mb-1">Guardar como plantilla</h3>
+              <p className="text-xs text-muted mb-4">{entries.length} alimentos · {totalCalories} kcal total</p>
+              <input
+                type="text"
+                value={saveMealName}
+                onChange={e => setSaveMealName(e.target.value)}
+                placeholder="Nombre (ej: Desayuno habitual)"
+                className="w-full bg-background border border-border-strong rounded-xl px-4 py-2.5 text-sm text-foreground placeholder-muted-dark focus:outline-none focus:border-lime mb-4"
+                autoFocus
+                onKeyDown={e => e.key === 'Enter' && saveCurrentAsMeal()}
+              />
+              <div className="flex gap-3">
+                <button onClick={() => setShowSaveModal(false)}
+                  className="flex-1 py-2.5 bg-white/[0.05] hover:bg-white/[0.1] text-muted rounded-xl text-sm transition-colors">
+                  Cancelar
+                </button>
+                <button onClick={saveCurrentAsMeal} disabled={!saveMealName.trim()}
+                  className="flex-1 py-2.5 bg-lime hover:bg-lime-dark disabled:opacity-40 text-background font-semibold rounded-xl text-sm transition-colors">
+                  Guardar
+                </button>
               </div>
             </motion.div>
           </motion.div>

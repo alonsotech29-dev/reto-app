@@ -21,7 +21,7 @@ export default async function ProgressPage() {
       .lte('date', endDateStr)
       .order('date'),
     supabase.from('food_entries')
-      .select('date, calories')
+      .select('date, calories, protein_g, carbs_g, fat_g')
       .eq('user_id', user!.id)
       .gte('date', startDate)
       .lte('date', endDateStr),

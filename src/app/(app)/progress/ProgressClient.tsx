@@ -5,16 +5,16 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
-  ResponsiveContainer
+  ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell
 } from 'recharts'
 import { Profile, DailyChecklist } from '@/types/database'
-import { Trophy, Flame, Footprints, Dumbbell, TrendingUp, Calendar, Scale } from 'lucide-react'
+import { Trophy, Flame, Footprints, Dumbbell, TrendingUp, Calendar, Scale, PieChart } from 'lucide-react'
 
 interface Props {
   profile: Profile
   userId: string
   checklists: DailyChecklist[]
-  foodEntries: Array<{ date: string; calories: number }>
+  foodEntries: Array<{ date: string; calories: number; protein_g?: number; carbs_g?: number; fat_g?: number }>
   weightLogs: Array<{ date: string; weight_kg: number }>
   challengeDay: number
 }
@@ -121,6 +121,40 @@ export default function ProgressClient({ profile, userId: _userId, checklists, f
     }
   }, [pastDays, profile.daily_calories])
 
+  const macroDistribution = useMemo(() => {
+    const withData = pastDays.filter(d => d.calories !== null && d.calories! > 0)
+    if (withData.length === 0) return null
+
+    const calsByDate = foodEntries.reduce((acc, e) => {
+      if (!acc[e.date]) acc[e.date] = { protein: 0, carbs: 0, fat: 0 }
+      acc[e.date].protein += e.protein_g || 0
+      acc[e.date].carbs += e.carbs_g || 0
+      acc[e.date].fat += e.fat_g || 0
+      return acc
+    }, {} as Record<string, { protein: number; carbs: number; fat: number }>)
+
+    const days = Object.values(calsByDate).filter(d => d.protein + d.carbs + d.fat > 0)
+    if (days.length === 0) return null
+
+    const avg = {
+      protein: Math.round(days.reduce((s, d) => s + d.protein, 0) / days.length),
+      carbs: Math.round(days.reduce((s, d) => s + d.carbs, 0) / days.length),
+      fat: Math.round(days.reduce((s, d) => s + d.fat, 0) / days.length),
+    }
+
+    const totalG = avg.protein + avg.carbs + avg.fat
+    if (totalG === 0) return null
+
+    return {
+      avg,
+      pieData: [
+        { name: 'Proteína', value: avg.protein, color: '#06b6d4', pct: Math.round(avg.protein / totalG * 100) },
+        { name: 'Carbos', value: avg.carbs, color: '#f97316', pct: Math.round(avg.carbs / totalG * 100) },
+        { name: 'Grasas', value: avg.fat, color: '#eab308', pct: Math.round(avg.fat / totalG * 100) },
+      ]
+    }
+  }, [pastDays, foodEntries])
+
   const adherenceData = useMemo(() => {
     const last7 = chartData.filter(d => d.calories !== null).slice(-7)
     return last7.map(d => {
@@ -223,6 +257,47 @@ export default function ProgressClient({ profile, userId: _userId, checklists, f
               </motion.div>
             ))}
           </div>
+
+          {/* Macro distribution pie chart */}
+          {macroDistribution && (
+            <motion.div custom={5} variants={fadeUp} initial="hidden" animate="visible" className="card p-5">
+              <h2 className="font-semibold font-heading text-foreground mb-4 flex items-center gap-2">
+                <PieChart className="w-4 h-4 text-accent-orange" /> Macros promedio
+              </h2>
+              <div className="flex items-center gap-4">
+                <div className="relative w-20 h-20 shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsPieChart>
+                      <Pie
+                        data={macroDistribution.pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={22}
+                        outerRadius={36}
+                        dataKey="value"
+                        strokeWidth={0}
+                      >
+                        {macroDistribution.pieData.map((entry, index) => (
+                          <Cell key={index} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </RechartsPieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  {macroDistribution.pieData.map(m => (
+                    <div key={m.name} className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: m.color }} />
+                      <span className="text-xs text-muted flex-1">{m.name}</span>
+                      <span className="text-xs font-medium text-foreground">{m.value}g</span>
+                      <span className="text-xs text-muted-dark w-8 text-right">{m.pct}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-muted-dark mt-3 text-center">Promedio diario del reto</p>
+            </motion.div>
+          )}
         </div>
 
         {/* Right: charts + calendar */}
