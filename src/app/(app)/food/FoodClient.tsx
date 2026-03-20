@@ -118,6 +118,20 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
   const totalCarbs = entries.reduce((s, e) => s + (e.carbs_g || 0), 0)
   const totalFat = entries.reduce((s, e) => s + (e.fat_g || 0), 0)
 
+  const [macroTargets] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(localStorage.getItem('reto-macro-targets') || '{}')
+        if (stored.protein_g && stored.carbs_g && stored.fat_g) return stored as { protein_g: number; carbs_g: number; fat_g: number }
+      } catch {}
+    }
+    return {
+      protein_g: Math.round(dailyCalories * 0.30 / 4),
+      carbs_g: Math.round(dailyCalories * 0.45 / 4),
+      fat_g: Math.round(dailyCalories * 0.25 / 9),
+    }
+  })
+
   const today = todayStr
   const isToday = selectedDate === today
   const challengeDay = getChallengeDay(challengeStartDate)
@@ -452,17 +466,32 @@ export default function FoodClient({ userId, dailyCalories, foodEntries: initial
                 <p className="text-center text-sm text-muted mt-2">Objetivo: {dailyCalories} kcal</p>
 
                 {entries.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2 mt-4">
+                  <div className="mt-4 space-y-2.5">
                     {[
-                      { label: 'Proteína', value: Math.round(totalProtein), color: 'text-accent-cyan' },
-                      { label: 'Carbos', value: Math.round(totalCarbs), color: 'text-accent-orange' },
-                      { label: 'Grasas', value: Math.round(totalFat), color: 'text-warning' },
-                    ].map(macro => (
-                      <div key={macro.label} className="bg-white/[0.03] rounded-xl p-2.5 text-center">
-                        <p className={`text-sm font-bold font-heading ${macro.color}`}>{macro.value}g</p>
-                        <p className="text-xs text-muted-dark">{macro.label}</p>
-                      </div>
-                    ))}
+                      { label: 'Proteína', consumed: Math.round(totalProtein), target: macroTargets.protein_g, barColor: 'bg-accent-cyan', textColor: 'text-accent-cyan' },
+                      { label: 'Carbos', consumed: Math.round(totalCarbs), target: macroTargets.carbs_g, barColor: 'bg-accent-orange', textColor: 'text-accent-orange' },
+                      { label: 'Grasas', consumed: Math.round(totalFat), target: macroTargets.fat_g, barColor: 'bg-warning', textColor: 'text-warning' },
+                    ].map(macro => {
+                      const pct = macro.target > 0 ? Math.min(100, Math.round(macro.consumed / macro.target * 100)) : 0
+                      const over = macro.consumed > macro.target
+                      return (
+                        <div key={macro.label}>
+                          <div className="flex justify-between items-center mb-1">
+                            <span className={`text-xs font-medium ${macro.textColor}`}>{macro.label}</span>
+                            <span className="text-xs text-muted">
+                              <span className={over ? 'text-danger font-medium' : 'text-foreground font-medium'}>{macro.consumed}g</span>
+                              <span className="text-muted-dark"> / {macro.target}g</span>
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-danger' : macro.barColor}`}
+                              style={{ width: `${pct}%`, opacity: 0.85 }}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </>

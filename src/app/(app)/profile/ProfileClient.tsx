@@ -73,6 +73,27 @@ export default function ProfileClient({ profile, email }: Props) {
   const [savingCalories, setSavingCalories] = useState(false)
   const [savedCalories, setSavedCalories] = useState(false)
 
+  const [macroTargets, setMacroTargets] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(localStorage.getItem('reto-macro-targets') || '{}')
+        if (stored.protein_g && stored.carbs_g && stored.fat_g) return stored as { protein_g: number; carbs_g: number; fat_g: number }
+      } catch {}
+    }
+    return {
+      protein_g: Math.round(profile.daily_calories * 0.30 / 4),
+      carbs_g: Math.round(profile.daily_calories * 0.45 / 4),
+      fat_g: Math.round(profile.daily_calories * 0.25 / 9),
+    }
+  })
+  const [macroSaved, setMacroSaved] = useState(false)
+  const saveMacroTargets = (targets: { protein_g: number; carbs_g: number; fat_g: number }) => {
+    localStorage.setItem('reto-macro-targets', JSON.stringify(targets))
+    setMacroTargets(targets)
+    setMacroSaved(true)
+    setTimeout(() => setMacroSaved(false), 2000)
+  }
+
   const update = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }))
   const updateCalc = (field: string, value: string | number) =>
     setCalcForm(prev => ({ ...prev, [field]: value }))
@@ -207,6 +228,10 @@ export default function ProfileClient({ profile, email }: Props) {
     } else {
       setCalcSaved(true)
       setDirectCalories(String(tdeeResult.goal))
+      const suggestedProtein = Math.round(parseFloat(calcForm.weight_kg) * 2)
+      const suggestedFat = Math.round(tdeeResult.goal * 0.25 / 9)
+      const suggestedCarbs = Math.round(Math.max(0, (tdeeResult.goal - suggestedProtein * 4 - suggestedFat * 9) / 4))
+      saveMacroTargets({ protein_g: suggestedProtein, carbs_g: suggestedCarbs, fat_g: suggestedFat })
       setTimeout(() => { setCalcSaved(false); setCalcOpen(false) }, 2000)
       router.refresh()
     }
@@ -432,6 +457,27 @@ export default function ProfileClient({ profile, email }: Props) {
                       <span className="text-sm font-semibold text-foreground">Objetivo recomendado</span>
                       <span className="text-xl font-bold font-heading text-lime">{tdeeResult.goal} kcal</span>
                     </div>
+                    {/* Auto-calculated macros */}
+                    {(() => {
+                      const suggestedProtein = Math.round(parseFloat(calcForm.weight_kg) * 2)
+                      const suggestedFat = Math.round(tdeeResult.goal * 0.25 / 9)
+                      const suggestedCarbs = Math.round((tdeeResult.goal - suggestedProtein * 4 - suggestedFat * 9) / 4)
+                      return (
+                        <div className="pt-1 border-t border-lime/20 space-y-1">
+                          <p className="text-xs text-muted font-medium">Macros sugeridos:</p>
+                          {[
+                            { label: 'Proteína', value: suggestedProtein, color: 'text-accent-cyan' },
+                            { label: 'Carbos', value: Math.max(0, suggestedCarbs), color: 'text-accent-orange' },
+                            { label: 'Grasas', value: suggestedFat, color: 'text-warning' },
+                          ].map(m => (
+                            <div key={m.label} className="flex justify-between text-xs">
+                              <span className="text-muted">{m.label}</span>
+                              <span className={`font-medium ${m.color}`}>{m.value}g/día</span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
 
@@ -479,6 +525,41 @@ export default function ProfileClient({ profile, email }: Props) {
                 </div>
               </div>
             )}
+          </motion.div>
+
+          {/* Macro targets card */}
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}
+            className="card p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold font-heading text-foreground flex items-center gap-2 text-sm">
+                <Target className="w-4 h-4 text-accent-orange" /> Objetivos de macros diarios
+              </h2>
+              {macroSaved && <span className="text-xs text-success flex items-center gap-1"><Check className="w-3 h-3"/>Guardado</span>}
+            </div>
+            {[
+              { key: 'protein_g' as const, label: 'Proteína', color: 'text-accent-cyan', border: 'border-accent-cyan/20', bg: 'bg-accent-cyan/5' },
+              { key: 'carbs_g' as const, label: 'Carbos', color: 'text-accent-orange', border: 'border-accent-orange/20', bg: 'bg-accent-orange/5' },
+              { key: 'fat_g' as const, label: 'Grasas', color: 'text-warning', border: 'border-warning/20', bg: 'bg-warning/5' },
+            ].map(macro => (
+              <div key={macro.key} className={`flex items-center gap-3 p-3 rounded-xl border ${macro.border} ${macro.bg}`}>
+                <span className={`text-xs font-medium w-16 shrink-0 ${macro.color}`}>{macro.label}</span>
+                <input
+                  type="number"
+                  value={macroTargets[macro.key]}
+                  onChange={e => setMacroTargets(prev => ({ ...prev, [macro.key]: parseInt(e.target.value) || 0 }))}
+                  min="0"
+                  max="500"
+                  className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-sm text-foreground text-center focus:outline-none focus:border-lime w-20"
+                />
+                <span className="text-xs text-muted-dark">g/día</span>
+              </div>
+            ))}
+            <button
+              onClick={() => saveMacroTargets(macroTargets)}
+              className="w-full py-2.5 bg-accent-orange/10 hover:bg-accent-orange/20 border border-accent-orange/20 text-accent-orange font-medium text-sm rounded-xl flex items-center justify-center gap-2 transition-all"
+            >
+              <Save className="w-3.5 h-3.5" /> Guardar objetivos
+            </button>
           </motion.div>
 
           {/* Weight registration */}
